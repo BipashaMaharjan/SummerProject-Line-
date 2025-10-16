@@ -38,7 +38,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen>
   @override
   Widget build(BuildContext context) {
     final tp = context.watch<TokenProvider>();
-    final tokens = tp.userTokens;
+    final tokens = tp.allTokens; // Use allTokens for staff dashboard
 
     final waiting = tokens.where((t) => t.status == TokenStatus.waiting).toList();
     final hold = tokens.where((t) => t.status == TokenStatus.hold).toList();
@@ -61,9 +61,27 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen>
         child: TabBarView(
           controller: _tabController,
           children: [
-            _TokenList(tokens: waiting, emptyText: 'No waiting tokens', onStart: _onStart, onComplete: _onComplete),
-            _TokenList(tokens: hold, emptyText: 'No tokens on hold', onStart: _onStart, onComplete: _onComplete),
-            _TokenList(tokens: processing, emptyText: 'No processing tokens', onStart: _onStart, onComplete: _onComplete),
+            _TokenList(
+              tokens: waiting, 
+              emptyText: 'No waiting tokens', 
+              onStart: _onStart, 
+              onComplete: _onComplete,
+              onTransfer: _onTransferToNextRoom,
+            ),
+            _TokenList(
+              tokens: hold, 
+              emptyText: 'No tokens on hold', 
+              onStart: _onStart, 
+              onComplete: _onComplete,
+              onTransfer: _onTransferToNextRoom,
+            ),
+            _TokenList(
+              tokens: processing, 
+              emptyText: 'No processing tokens', 
+              onStart: _onStart, 
+              onComplete: _onComplete,
+              onTransfer: _onTransferToNextRoom,
+            ),
           ],
         ),
       ),
@@ -85,6 +103,84 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen>
       await _refresh();
     } else {
       _snack('Failed to start');
+    }
+  }
+
+  Future<void> _onTransferToNextRoom(Token token) async {
+    try {
+      // Get the service workflow to find next room
+      final workflowResponse = await SupabaseConfig.client
+          .from('service_workflow')
+          .select('*')
+          .eq('service_id', token.serviceId)
+          .order('sequence_order');
+
+      if ((workflowResponse as List).isEmpty) {
+        _snack('No workflow found for this service');
+        return;
+      }
+
+      // Find current room in workflow
+      final workflow = workflowResponse;
+      int currentIndex = workflow.indexWhere(
+        (step) => step['room_id'] == token.currentRoomId
+      );
+
+      if (currentIndex == -1) {
+        _snack('Current room not found in workflow');
+        return;
+      }
+
+      print('DEBUG: Current room index: $currentIndex, Workflow length: ${workflow.length}');
+      print('DEBUG: Token current room: ${token.currentRoomId}');
+      print('DEBUG: Workflow rooms: ${workflow.map((w) => w['room_id']).toList()}');
+      
+      // Check if there's a next room
+      if (currentIndex >= workflow.length - 1) {
+        print('DEBUG: Last room detected - completing token');
+        // Last room - complete the token
+        await _onComplete(token);
+        return;
+      }
+
+      // Move to next room
+      final nextStep = workflow[currentIndex + 1];
+      final nextRoomId = nextStep['room_id'];
+      final nextSequence = nextStep['sequence_order'];
+
+      // Get room details separately
+      final roomResponse = await SupabaseConfig.client
+          .from('rooms')
+          .select('name, room_number')
+          .eq('id', nextRoomId)
+          .single();
+
+      // Update token to next room
+      await SupabaseConfig.client
+          .from('tokens')
+          .update({
+            'current_room_id': nextRoomId,
+            'current_sequence': nextSequence,
+            'status': 'waiting', // Reset to waiting for next room
+          })
+          .eq('id', token.id);
+
+      // Add history entry
+      await SupabaseConfig.client
+          .from('token_history')
+          .insert({
+            'token_id': token.id,
+            'from_room_id': token.currentRoomId,
+            'to_room_id': nextRoomId,
+            'action': 'transferred',
+            'notes': 'Transferred to ${roomResponse['name']} (${roomResponse['room_number']})',
+            'performed_by': SupabaseConfig.client.auth.currentUser?.id,
+          });
+
+      _snack('Transferred ${token.displayToken} to ${roomResponse['name']}');
+      await _refresh();
+    } catch (e) {
+      _snack('Failed to transfer: $e');
     }
   }
 
@@ -129,12 +225,14 @@ class _TokenList extends StatelessWidget {
   final String emptyText;
   final Future<void> Function(Token) onStart;
   final Future<void> Function(Token) onComplete;
+  final Future<void> Function(Token) onTransfer;
 
   const _TokenList({
     required this.tokens,
     required this.emptyText,
     required this.onStart,
     required this.onComplete,
+    required this.onTransfer,
   });
 
   @override
@@ -171,7 +269,12 @@ class _TokenList extends StatelessWidget {
                   Text('Position: ${t.queuePosition}'),
               ],
             ),
-            trailing: _Actions(token: t, onStart: onStart, onComplete: onComplete),
+            trailing: _Actions(
+              token: t, 
+              onStart: onStart, 
+              onComplete: onComplete,
+              onTransfer: onTransfer,
+            ),
           ),
         );
       },
@@ -183,7 +286,13 @@ class _Actions extends StatelessWidget {
   final Token token;
   final Future<void> Function(Token) onStart;
   final Future<void> Function(Token) onComplete;
-  const _Actions({required this.token, required this.onStart, required this.onComplete});
+  final Future<void> Function(Token) onTransfer;
+  const _Actions({
+    required this.token, 
+    required this.onStart, 
+    required this.onComplete,
+    required this.onTransfer,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -197,11 +306,22 @@ class _Actions extends StatelessWidget {
           color: Colors.blue,
         );
       case TokenStatus.processing:
-        return IconButton(
-          icon: const Icon(Icons.check_circle),
-          tooltip: 'Complete',
-          onPressed: () => onComplete(token),
-          color: Colors.green,
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.arrow_forward),
+              tooltip: 'Next Room',
+              onPressed: () => onTransfer(token),
+              color: Colors.orange,
+            ),
+            IconButton(
+              icon: const Icon(Icons.check_circle),
+              tooltip: 'Complete',
+              onPressed: () => onComplete(token),
+              color: Colors.green,
+            ),
+          ],
         );
       case TokenStatus.completed:
       case TokenStatus.rejected:

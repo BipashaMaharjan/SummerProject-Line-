@@ -3,7 +3,7 @@ import 'service.dart';
 
 class Token {
   final String id;
-  final int tokenNumber;
+  final String tokenNumber; // Changed from int to String to match database
   final String userId;
   final String serviceId;
   final TokenStatus status;
@@ -16,6 +16,7 @@ class Token {
   final DateTime? completedAt;
   final DateTime? startedAt;
   final DateTime? scheduledDate;
+  final DateTime? bookedAt; // Added to match database schema
 
   // Additional fields from joins
   final String? userName;
@@ -41,6 +42,7 @@ class Token {
     this.completedAt,
     this.startedAt,
     this.scheduledDate,
+    this.bookedAt,
     this.userName,
     this.userPhone,
     this.serviceName,
@@ -53,7 +55,7 @@ class Token {
   factory Token.fromJson(Map<String, dynamic> json) {
     return Token(
       id: json['id'],
-      tokenNumber: json['token_number'],
+      tokenNumber: json['token_number']?.toString() ?? json['id'].toString(), // Handle both string and fallback
       userId: json['user_id'],
       serviceId: json['service_id'],
       status: TokenStatus.values.firstWhere(
@@ -64,17 +66,22 @@ class Token {
       currentSequence: json['current_sequence'] ?? 1,
       priority: json['priority'] ?? 0,
       notes: json['notes'],
-      createdAt: DateTime.parse(json['created_at']),
-      updatedAt: DateTime.parse(json['updated_at']),
-      completedAt: json['completed_at'] != null 
-          ? DateTime.parse(json['completed_at']) 
+      createdAt: DateTime.parse(json['created_at'] ?? json['booked_at'] ?? DateTime.now().toIso8601String()),
+      updatedAt: DateTime.parse(json['updated_at'] ?? json['created_at'] ?? json['booked_at'] ?? DateTime.now().toIso8601String()),
+      completedAt: json['completed_at'] != null
+          ? DateTime.parse(json['completed_at'])
           : null,
-      startedAt: json['started_at'] != null 
-          ? DateTime.parse(json['started_at']) 
+      startedAt: json['started_at'] != null
+          ? DateTime.parse(json['started_at'])
           : null,
       scheduledDate: json['scheduled_date'] != null
           ? DateTime.parse(json['scheduled_date'])
           : null,
+      bookedAt: json['booked_at'] != null
+          ? DateTime.parse(json['booked_at'])
+          : json['created_at'] != null
+              ? DateTime.parse(json['created_at'])
+              : null,
       userName: json['user_name'],
       userPhone: json['user_phone'],
       serviceName: json['service_name'],
@@ -84,7 +91,7 @@ class Token {
               orElse: () => ServiceType.licenseRenewal,
             )
           : null,
-currentRoomName: json['current_room_name'],
+      currentRoomName: json['current_room_name'],
       currentRoomNumber: json['current_room_number'],
       queuePosition: json['queue_position'],
     );
@@ -108,7 +115,7 @@ currentRoomName: json['current_room_name'],
     };
   }
 
-  // Generate display token with dash notation (e.g., "5-2")
+  // Generate display token with dash notation (e.g., "L001-1")
   String get displayToken => '$tokenNumber-$currentSequence';
 
   // Get status color for UI
@@ -149,7 +156,7 @@ currentRoomName: json['current_room_name'],
 
   Token copyWith({
     String? id,
-    int? tokenNumber,
+    String? tokenNumber,
     String? userId,
     String? serviceId,
     TokenStatus? status,
@@ -161,6 +168,7 @@ currentRoomName: json['current_room_name'],
     DateTime? updatedAt,
     DateTime? completedAt,
     DateTime? startedAt,
+    DateTime? bookedAt,
     String? userName,
     String? userPhone,
     String? serviceName,
@@ -182,6 +190,7 @@ currentRoomName: json['current_room_name'],
       updatedAt: updatedAt ?? this.updatedAt,
       completedAt: completedAt ?? this.completedAt,
       startedAt: startedAt ?? this.startedAt,
+      bookedAt: bookedAt ?? this.bookedAt,
       userName: userName ?? this.userName,
       userPhone: userPhone ?? this.userPhone,
       serviceName: serviceName ?? this.serviceName,

@@ -184,7 +184,7 @@ class DashboardTab extends StatelessWidget {
           ),
           
           const SizedBox(height: 24),
-          
+
           // Current Status
           const Text(
             'Current Status',
@@ -193,9 +193,9 @@ class DashboardTab extends StatelessWidget {
               fontWeight: FontWeight.bold,
             ),
           ),
-          
+
           const SizedBox(height: 16),
-          
+
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),

@@ -23,9 +23,10 @@ class Service {
       name: json['name'].toString(),
       type: ServiceType.values.firstWhere(
         (e) => e.name == json['type'],
+        orElse: () => _getServiceTypeFromName(json['name']?.toString() ?? ''),
       ),
       description: json['description']?.toString(),
-      estimatedTimeMinutes: json['estimated_time_minutes'] ?? 30,
+      estimatedTimeMinutes: json['estimated_duration'] ?? json['estimated_time_minutes'] ?? 30,
       isActive: json['is_active'] ?? true,
       createdAt: DateTime.parse(json['created_at'].toString()),
     );
@@ -52,4 +53,15 @@ enum ServiceType {
   final String value;
 
   String get name => value;
+}
+
+// Helper function to determine service type from name when type column is missing
+ServiceType _getServiceTypeFromName(String name) {
+  final lowerName = name.toLowerCase();
+  if (lowerName.contains('renewal')) {
+    return ServiceType.licenseRenewal;
+  } else if (lowerName.contains('new') && lowerName.contains('license')) {
+    return ServiceType.newLicense;
+  }
+  return ServiceType.licenseRenewal; // Default fallback
 }

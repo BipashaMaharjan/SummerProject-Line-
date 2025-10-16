@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import 'staff_management_screen.dart';
+import 'add_staff_screen.dart';
 
 class AdminDashboardScreen extends StatelessWidget {
   const AdminDashboardScreen({super.key});
@@ -25,6 +26,14 @@ class AdminDashboardScreen extends StatelessWidget {
             },
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const AddStaffScreen()),
+          );
+        },
+        child: const Icon(Icons.person_add),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),

@@ -23,24 +23,72 @@ class _TokenConfirmationScreenState extends State<TokenConfirmationScreen> {
   final TextEditingController _dateController = TextEditingController();
 
   Future<void> _selectDate(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 30)),
-      selectableDayPredicate: (DateTime date) {
-        // Disable weekends
-        if (date.weekday == DateTime.saturday || date.weekday == DateTime.sunday) {
-          return false;
-        }
-        return true;
-      },
-    );
-    if (picked != null && picked != _selectedDate) {
-      setState(() {
-        _selectedDate = picked;
-        _dateController.text = '${picked.day}/${picked.month}/${picked.year}';
-      });
+    try {
+      debugPrint('Opening date picker...');
+      
+      final DateTime today = DateTime.now();
+      final DateTime initialDate = _selectedDate ?? today;
+      
+      final DateTime? picked = await showDatePicker(
+        context: context,
+        initialDate: initialDate,
+        firstDate: DateTime.now(),
+        lastDate: DateTime.now().add(const Duration(days: 30)),
+        helpText: 'Select appointment date',
+        cancelText: 'Cancel',
+        confirmText: 'Select',
+        selectableDayPredicate: (DateTime date) {
+          final DateTime today = DateTime.now();
+          final bool isToday = date.year == today.year && 
+                              date.month == today.month && 
+                              date.day == today.day;
+          
+          // Allow today as exception, otherwise disable weekends
+          if (isToday) {
+            return true; // Allow today even if it's weekend
+          }
+          
+          // Disable weekends for other dates
+          if (date.weekday == DateTime.saturday || date.weekday == DateTime.sunday) {
+            return false;
+          }
+          return true;
+        },
+        builder: (context, child) {
+          return Theme(
+            data: Theme.of(context).copyWith(
+              colorScheme: ColorScheme.light(
+                primary: Colors.blue.shade600,
+                onPrimary: Colors.white,
+                surface: Colors.white,
+                onSurface: Colors.black,
+              ),
+            ),
+            child: child!,
+          );
+        },
+      );
+      
+      if (picked != null) {
+        debugPrint('Date selected: $picked');
+        setState(() {
+          _selectedDate = picked;
+          _dateController.text = _formatDate(picked);
+        });
+        debugPrint('Date state updated successfully');
+      } else {
+        debugPrint('Date picker cancelled');
+      }
+    } catch (e) {
+      debugPrint('Error showing date picker: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error opening date picker: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 

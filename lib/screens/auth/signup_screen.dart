@@ -60,11 +60,12 @@ class _SignupScreenState extends State<SignupScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF0F4FF),
-      body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 80),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 40),
+              children: [
             const Text(
               'Sign up for Line ko Status',
               style: TextStyle(
@@ -113,7 +114,9 @@ class _SignupScreenState extends State<SignupScreen> {
                     : const Text('Send OTP', style: TextStyle(color: Colors.white)),
               ),
             ),
-            const Spacer(),
+            
+            // Add responsive spacing instead of Spacer
+            SizedBox(height: MediaQuery.of(context).size.height * 0.3),
 
             Center(
               child: GestureDetector(
@@ -130,7 +133,9 @@ class _SignupScreenState extends State<SignupScreen> {
                 ),
               ),
             ),
-          ],
+            ],
+            );
+          },
         ),
       ),
     );

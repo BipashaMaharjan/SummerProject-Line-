@@ -105,18 +105,54 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
+  // Check if email is a staff email
+  bool _isStaffEmail(String email) {
+    return email.endsWith('@work.com');
+  }
+
   Future<void> signInWithEmailAndPassword(String email, String password) async {
     try {
       _isLoading = true;
       _error = null;
       notifyListeners();
 
-      await SupabaseConfig.client.auth.signInWithPassword(
+      // Sign in with email and password
+      final response = await SupabaseConfig.client.auth.signInWithPassword(
         email: email,
         password: password,
       );
-      
-      // The auth state listener will handle the rest
+
+      if (response.user != null) {
+        _user = response.user;
+        
+        // Load or create user profile
+        try {
+          await _loadProfile(_user!.id);
+          
+          // If profile doesn't exist, create one based on email domain
+          if (_profile == null) {
+            final isStaff = _isStaffEmail(email);
+            final role = isStaff ? 'staff' : 'customer';
+            
+            await SupabaseConfig.client.from('profiles').upsert({
+              'id': _user!.id,
+              'email': email,
+              'full_name': email.split('@')[0],
+              'role': role,
+              'is_active': true,
+              'created_at': DateTime.now().toIso8601String(),
+              'updated_at': DateTime.now().toIso8601String(),
+            });
+            
+            // Reload profile with updated data
+            await _loadProfile(_user!.id);
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            print('Error handling user profile: $e');
+          }
+        }
+      }
     } on AuthException catch (e) {
       _error = e.message;
       rethrow;
@@ -125,7 +161,9 @@ class AuthProvider with ChangeNotifier {
       rethrow;
     } finally {
       _isLoading = false;
-      notifyListeners();
+      if (!_disposed) {
+        notifyListeners();
+      }
     }
   }
 

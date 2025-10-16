@@ -38,31 +38,34 @@ class _LoginScreenState extends State<LoginScreen> {
       
       if (!mounted) return;
       
-      // Get the appropriate home screen based on user role
-      Widget homeScreen;
       if (authProvider.isAdmin) {
-        homeScreen = const AdminDashboardScreen();
-      } else if (authProvider.isStaff) {
-        homeScreen = const StaffDashboardScreen();
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
+        );
+      } else if (authProvider.isStaff || email.endsWith('@work.com')) {
+        // Redirect to staff dashboard for @work.com emails
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const StaffDashboardScreen()),
+        );
       } else {
-        homeScreen = const HomeScreen();
+        // Regular users
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
+        );
       }
-      
-      // Navigate to the appropriate screen and remove all previous routes
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => homeScreen),
-        (route) => false,
-      );
-      
-    } catch (error) {
-      print('Login error: $error');
+    } catch (e) {
       if (!mounted) return;
-      
       String errorMessage = 'Login failed. Please try again.';
-      if (error.toString().contains('Invalid login credentials')) {
+      
+      if (e.toString().contains('Invalid login credentials')) {
         errorMessage = 'Invalid email or password';
-      } else if (error.toString().contains('network error')) {
+      } else if (e.toString().contains('network error')) {
         errorMessage = 'Network error. Please check your connection.';
+      } else if (e.toString().contains('Email not confirmed')) {
+        errorMessage = 'Please verify your email before logging in.';
       }
       
       ScaffoldMessenger.of(context).showSnackBar(

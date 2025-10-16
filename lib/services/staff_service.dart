@@ -96,26 +96,12 @@ class StaffService {
     }
   }
 
-  // Delete staff member
   Future<void> deleteStaff(String userId) async {
     try {
-      // First delete the profile
-      await _supabase.from('profiles').delete().eq('id', userId);
-      
-      // Then delete the auth user
+      await _supabase.from('staff').delete().eq('id', userId);
       await _supabase.auth.admin.deleteUser(userId);
     } catch (e) {
       debugPrint('Error deleting staff: $e');
-      rethrow;
-    }
-  }
-
-  // Reset password for staff
-  Future<void> resetPassword(String email) async {
-    try {
-      await _supabase.auth.resetPasswordForEmail(email);
-    } catch (e) {
-      debugPrint('Error resetting password: $e');
       rethrow;
     }
   }
