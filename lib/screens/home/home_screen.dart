@@ -2,12 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/token_provider.dart';
+import '../../providers/notification_provider.dart';
 import '../../models/user_profile.dart';
 import '../../config/supabase_config.dart';
 import '../auth/login_screen.dart';
 import '../booking/service_selection_screen.dart';
 import '../tokens/user_tokens_screen.dart';
+import '../tokens/token_history_screen.dart';
 import '../staff/staff_dashboard_screen.dart';
+import '../profile/edit_profile_screen.dart';
+import '../settings/settings_screen.dart';
+import '../support/help_support_screen.dart';
+import 'notifications_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -36,6 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
+    final notificationProvider = Provider.of<NotificationProvider>(context);
     final isStaff = authProvider.user?.userMetadata?['role'] == 'staff';
     final screens = isStaff ? _staffScreens : _screens;
 
@@ -46,11 +53,44 @@ class _HomeScreenState extends State<HomeScreen> {
         foregroundColor: Colors.white,
         actions: [
           if (!isStaff) ...[
-            IconButton(
-              icon: const Icon(Icons.notifications_outlined),
-              onPressed: () {
-                // TODO: Implement notifications
-              },
+            Stack(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.notifications_outlined),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const NotificationsScreen(),
+                      ),
+                    );
+                  },
+                ),
+                if (notificationProvider.unreadCount > 0)
+                  Positioned(
+                    right: 8,
+                    top: 8,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        shape: BoxShape.circle,
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 18,
+                        minHeight: 18,
+                      ),
+                      child: Text(
+                        '${notificationProvider.unreadCount > 9 ? '9+' : notificationProvider.unreadCount}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ],
         ],
@@ -176,7 +216,11 @@ class DashboardTab extends StatelessWidget {
                   subtitle: 'View past tokens',
                   color: Colors.orange,
                   onTap: () {
-                    // TODO: Navigate to history screen
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const TokenHistoryScreen(),
+                      ),
+                    );
                   },
                 ),
               ),
@@ -637,8 +681,17 @@ class _ProfileTabState extends State<ProfileTab> {
           _buildProfileOption(
             icon: Icons.edit_outlined,
             title: 'Edit Profile',
-            onTap: () {
-              // TODO: Navigate to edit profile
+            onTap: () async {
+              if (userProfile != null) {
+                final result = await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => EditProfileScreen(userProfile: userProfile!),
+                  ),
+                );
+                if (result == true) {
+                  _loadUserProfile();
+                }
+              }
             },
           ),
           
@@ -646,7 +699,11 @@ class _ProfileTabState extends State<ProfileTab> {
             icon: Icons.history,
             title: 'Token History',
             onTap: () {
-              // TODO: Navigate to history
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const TokenHistoryScreen(),
+                ),
+              );
             },
           ),
           
@@ -654,7 +711,11 @@ class _ProfileTabState extends State<ProfileTab> {
             icon: Icons.settings_outlined,
             title: 'Settings',
             onTap: () {
-              // TODO: Navigate to settings
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const SettingsScreen(),
+                ),
+              );
             },
           ),
           
@@ -662,7 +723,11 @@ class _ProfileTabState extends State<ProfileTab> {
             icon: Icons.help_outline,
             title: 'Help & Support',
             onTap: () {
-              // TODO: Navigate to help
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const HelpSupportScreen(),
+                ),
+              );
             },
           ),
           

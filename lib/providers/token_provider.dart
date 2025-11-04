@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/supabase_config.dart';
 import '../models/token.dart';
 import '../models/service.dart';
@@ -288,10 +289,6 @@ class TokenProvider extends ChangeNotifier {
           .select()
           .single();
 
-      if (tokenResponse == null) {
-        throw Exception('Failed to create token: No response from server');
-      }
-
       debugPrint('✅ Token created successfully: ${tokenResponse['id']}');
 
       // Try to create token history (optional)
@@ -368,7 +365,7 @@ class TokenProvider extends ChangeNotifier {
       String prefix = 'T'; // Default prefix
       if (serviceResponse != null && serviceResponse['name'] != null) {
         final serviceName = serviceResponse['name'] as String;
-        prefix = serviceName.length >= 1 ? serviceName[0].toUpperCase() : 'T';
+        prefix = serviceName.isNotEmpty ? serviceName[0].toUpperCase() : 'T';
       }
 
       // Get today's date for uniqueness
@@ -466,14 +463,9 @@ class TokenProvider extends ChangeNotifier {
           .select()
           .single();
 
-      if (response != null) {
-        debugPrint('✅ Created workflow for service: $serviceId');
-        return true;
-      } else {
-        debugPrint('❌ Failed to create workflow for service: $serviceId');
-        return false;
-      }
-    } catch (e) {
+      debugPrint('✅ Created workflow for service: $serviceId');
+      return true;
+        } catch (e) {
       debugPrint('❌ Unexpected error in _ensureServiceWorkflow: $e');
       // Check for specific PostgreSQL errors
       if (e.toString().contains('violates foreign key constraint')) {
@@ -820,5 +812,183 @@ class TokenProvider extends ChangeNotifier {
     };
 
     return fallbackToRealMap[roomId] ?? roomId;
+  }
+
+  // ========== NEW FEATURES ==========
+
+  /// Reject token (for trial/biometric failure)
+  /// Automatically advances next token in queue
+  Future<bool> rejectToken(String tokenId, String reason, {String? staffId}) async {
+    try {
+      debugPrint('🚫 Rejecting token: $tokenId');
+      debugPrint('📝 Reason: $reason');
+
+      // Get token details before rejection
+      final tokenResponse = await SupabaseConfig.client
+          .from('tokens')
+          .select('*, services:service_id(name)')
+          .eq('id', tokenId)
+          .single();
+
+      final currentRoomId = tokenResponse['current_room_id'];
+      final serviceId = tokenResponse['service_id'];
+
+      // Update token status to rejected
+      await SupabaseConfig.client
+          .from('tokens')
+          .update({
+            'status': 'rejected',
+            'updated_at': DateTime.now().toIso8601String(),
+            'notes': reason,
+          })
+          .eq('id', tokenId);
+
+      // Add history entry
+      await SupabaseConfig.client
+          .from('token_history')
+          .insert({
+            'token_id': tokenId,
+            'room_id': currentRoomId,
+            'staff_id': staffId ?? SupabaseConfig.client.auth.currentUser?.id,
+            'status': 'rejected',
+            'action': 'rejected',
+            'notes': reason,
+          });
+
+      debugPrint('✅ Token rejected successfully');
+
+      // Auto-advance next token in queue
+      await _autoAdvanceNextToken(currentRoomId, serviceId);
+
+      // Refresh tokens
+      await getTodaysQueue();
+      notifyListeners();
+
+      return true;
+    } catch (e) {
+      debugPrint('❌ Error rejecting token: $e');
+      _setError('Failed to reject token: $e');
+      return false;
+    }
+  }
+
+  /// Auto-advance next waiting token when one is rejected/completed
+  Future<void> _autoAdvanceNextToken(String? roomId, String? serviceId) async {
+    if (roomId == null) return;
+
+    try {
+      debugPrint('🔄 Auto-advancing next token in room: $roomId');
+
+      // Find next waiting token in the same room
+      final nextTokens = await SupabaseConfig.client
+          .from('tokens')
+          .select()
+          .eq('current_room_id', roomId)
+          .eq('status', 'waiting')
+          .order('priority', ascending: false)
+          .order('booked_at', ascending: true)
+          .limit(1);
+
+      if ((nextTokens as List).isEmpty) {
+        debugPrint('ℹ️ No waiting tokens to advance');
+        return;
+      }
+
+      final nextToken = nextTokens.first;
+      debugPrint('✅ Found next token: ${nextToken['token_number']}');
+
+      // Optionally auto-start the next token (you can enable/disable this)
+      // await startOperation(nextToken['id'], roomId);
+
+      debugPrint('✅ Next token ready for processing');
+    } catch (e) {
+      debugPrint('⚠️ Error auto-advancing token: $e');
+    }
+  }
+
+  /// Postpone token (move to end of queue)
+  Future<bool> postponeToken(String tokenId, {String? reason}) async {
+    try {
+      debugPrint('⏰ Postponing token: $tokenId');
+
+      // Get current token details
+      final tokenResponse = await SupabaseConfig.client
+          .from('tokens')
+          .select()
+          .eq('id', tokenId)
+          .single();
+
+      // Update token with lower priority and new timestamp
+      await SupabaseConfig.client
+          .from('tokens')
+          .update({
+            'priority': -1, // Lower priority
+            'booked_at': DateTime.now().toIso8601String(), // Move to end
+            'status': 'waiting', // Reset to waiting
+            'updated_at': DateTime.now().toIso8601String(),
+            'notes': reason ?? 'Postponed by user',
+          })
+          .eq('id', tokenId);
+
+      // Add history entry
+      await SupabaseConfig.client
+          .from('token_history')
+          .insert({
+            'token_id': tokenId,
+            'room_id': tokenResponse['current_room_id'],
+            'status': 'waiting',
+            'action': 'postponed',
+            'notes': reason ?? 'Token postponed',
+          });
+
+      debugPrint('✅ Token postponed successfully');
+
+      // Refresh tokens
+      await loadUserTokens();
+      notifyListeners();
+
+      return true;
+    } catch (e) {
+      debugPrint('❌ Error postponing token: $e');
+      _setError('Failed to postpone token: $e');
+      return false;
+    }
+  }
+
+  /// Setup real-time subscription for token updates
+  void subscribeToTokenUpdates(Function(Map<String, dynamic>) onUpdate) {
+    try {
+      debugPrint('🔔 Setting up real-time token subscription');
+
+      SupabaseConfig.client
+          .channel('tokens_channel')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'tokens',
+            callback: (payload) {
+              debugPrint('🔔 Token update received: ${payload.eventType}');
+              onUpdate(payload.newRecord);
+              // Refresh tokens on any change
+              getTodaysQueue();
+              loadUserTokens();
+            },
+          )
+          .subscribe();
+
+      debugPrint('✅ Real-time subscription active');
+    } catch (e) {
+      debugPrint('⚠️ Error setting up real-time subscription: $e');
+    }
+  }
+
+  /// Unsubscribe from real-time updates
+  void unsubscribeFromTokenUpdates() {
+    try {
+      SupabaseConfig.client.removeAllChannels();
+      debugPrint('✅ Unsubscribed from token updates');
+    } catch (e) {
+      debugPrint('⚠️ Error unsubscribing: $e');
+    }
   }
 }

@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import 'staff_management_screen.dart';
 import 'add_staff_screen.dart';
+import 'analytics_screen.dart';
+import 'holidays_screen.dart';
 
 class AdminDashboardScreen extends StatelessWidget {
   const AdminDashboardScreen({super.key});
@@ -55,13 +57,25 @@ class AdminDashboardScreen extends StatelessWidget {
             ),
             _DashboardTile(
               icon: Icons.analytics_outlined,
-              label: 'Analytics (Coming Soon)',
-              onTap: () {},
+              label: 'Analytics',
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const AnalyticsScreen(),
+                  ),
+                );
+              },
             ),
             _DashboardTile(
               icon: Icons.calendar_month_outlined,
-              label: 'Holidays (Coming Soon)',
-              onTap: () {},
+              label: 'Holidays',
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const HolidaysScreen(),
+                  ),
+                );
+              },
             ),
           ],
         ),

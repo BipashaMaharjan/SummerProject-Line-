@@ -229,6 +229,23 @@ extension TokenStatusExtension on TokenStatus {
     }
   }
   
+  Color get statusColor {
+    switch (this) {
+      case TokenStatus.waiting:
+        return Colors.orange;
+      case TokenStatus.hold:
+        return Colors.red;
+      case TokenStatus.processing:
+        return Colors.blue;
+      case TokenStatus.completed:
+        return Colors.green;
+      case TokenStatus.rejected:
+        return Colors.red.shade800;
+      case TokenStatus.noShow:
+        return Colors.grey;
+    }
+  }
+  
   bool get isActive => this == TokenStatus.waiting || 
                       this == TokenStatus.hold || 
                       this == TokenStatus.processing;

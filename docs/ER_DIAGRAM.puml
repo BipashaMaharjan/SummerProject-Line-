@@ -1,0 +1,225 @@
+@startuml Digital_Queue_Management_ER_Diagram
+
+!define PRIMARY_KEY <b><color:#FF6B6B>PK</color></b>
+!define FOREIGN_KEY <color:#4ECDC4>FK</color>
+
+skinparam linetype ortho
+skinparam backgroundColor #FFFFFF
+skinparam roundcorner 5
+skinparam shadowing false
+
+skinparam class {
+  BackgroundColor #E8F4F8
+  BorderColor #2C3E50
+  ArrowColor #34495E
+  FontSize 11
+}
+
+title Digital Queue Management System - Entity Relationship Diagram
+
+' ==================== ENTITIES ====================
+
+entity "User (profiles)" as user {
+  PRIMARY_KEY id : UUID
+  --
+  full_name : VARCHAR
+  phone : VARCHAR(UNIQUE)
+  **role : ENUM**
+    • customer
+    • staff  
+    • admin
+  is_active : BOOLEAN
+  created_at : TIMESTAMP
+  updated_at : TIMESTAMP
+}
+
+entity "Service" as service {
+  PRIMARY_KEY id : UUID
+  --
+  name : VARCHAR
+  **type : ENUM**
+    • license_renewal
+    • new_license
+  description : TEXT
+  estimated_time_minutes : INTEGER
+  is_active : BOOLEAN
+  created_at : TIMESTAMP
+}
+
+entity "Room (Counter)" as room {
+  PRIMARY_KEY id : UUID
+  --
+  name : VARCHAR
+  room_number : VARCHAR
+  description : TEXT
+  is_active : BOOLEAN
+  created_at : TIMESTAMP
+}
+
+entity "Token" as token {
+  PRIMARY_KEY id : UUID
+  --
+  token_number : VARCHAR
+  FOREIGN_KEY user_id : UUID
+  FOREIGN_KEY service_id : UUID
+  FOREIGN_KEY current_room_id : UUID
+  **status : ENUM**
+    • waiting
+    • hold
+    • processing
+    • completed
+    • rejected
+    • no_show
+  current_sequence : INTEGER
+  priority : INTEGER
+  notes : TEXT
+  scheduled_date : DATE
+  booked_at : TIMESTAMP
+  started_at : TIMESTAMP
+  completed_at : TIMESTAMP
+  created_at : TIMESTAMP
+  updated_at : TIMESTAMP
+}
+
+entity "Service Workflow" as workflow {
+  PRIMARY_KEY id : UUID
+  --
+  FOREIGN_KEY service_id : UUID
+  FOREIGN_KEY room_id : UUID
+  sequence_order : INTEGER
+  created_at : TIMESTAMP
+}
+
+entity "Token History" as history {
+  PRIMARY_KEY id : UUID
+  --
+  FOREIGN_KEY token_id : UUID
+  FOREIGN_KEY room_id : UUID
+  FOREIGN_KEY staff_id : UUID
+  **status : ENUM**
+  sequence_number : INTEGER
+  action : VARCHAR
+  notes : TEXT
+  created_at : TIMESTAMP
+}
+
+entity "Notification" as notification {
+  PRIMARY_KEY id : UUID
+  --
+  FOREIGN_KEY user_id : UUID
+  FOREIGN_KEY token_id : UUID
+  title : VARCHAR
+  body : TEXT
+  **type : ENUM**
+    • status_update
+    • queue_alert
+    • completed
+    • cancelled
+  is_read : BOOLEAN
+  timestamp : TIMESTAMP
+  created_at : TIMESTAMP
+}
+
+entity "Holiday" as holiday {
+  PRIMARY_KEY id : UUID
+  --
+  date : DATE
+  name : VARCHAR
+  description : TEXT
+  is_active : BOOLEAN
+  created_at : TIMESTAMP
+}
+
+' ==================== RELATIONSHIPS ====================
+
+' User relationships
+user ||--o{ token : "books"
+user ||--o{ history : "processes\n(as staff)"
+user ||--o{ notification : "receives"
+
+' Token relationships
+token }o--|| user : "booked by"
+token }o--|| service : "for service"
+token }o--o| room : "currently in"
+token ||--o{ history : "has history"
+token ||--o{ notification : "generates"
+
+' Service relationships
+service ||--o{ token : "requested for"
+service ||--o{ workflow : "has workflow"
+
+' Room relationships
+room ||--o{ workflow : "part of\nworkflow"
+room ||--o{ token : "current\nlocation"
+room ||--o{ history : "processed in"
+
+' Workflow relationships
+workflow }o--|| service : "defines for"
+workflow }o--|| room : "includes"
+
+' History relationships
+history }o--|| token : "tracks"
+history }o--o| room : "in room"
+history }o--o| user : "by staff"
+
+' Notification relationships
+notification }o--|| user : "sent to"
+notification }o--|| token : "about"
+
+' ==================== NOTES ====================
+
+note right of user
+  **User Roles:**
+  • Customer: Books tokens
+  • Staff: Processes tokens
+  • Admin: System management
+  
+  **Authentication:**
+  • Customer: OTP-based
+  • Staff/Admin: Email/Password
+end note
+
+note right of token
+  **Token Format:** L001-3
+  • L001 = Token number
+  • 3 = Current sequence
+  
+  **Lifecycle:**
+  waiting → processing → completed
+  
+  **Multi-room Workflow:**
+  Token moves through rooms
+  based on service workflow
+end note
+
+note bottom of workflow
+  **Workflow Example:**
+  License Renewal Service:
+  1. Reception (seq: 1)
+  2. Document Verification (seq: 2)
+  3. Payment Counter (seq: 3)
+  4. Photo/Biometric (seq: 4)
+  5. Final Processing (seq: 5)
+end note
+
+note right of notification
+  **Real-time Notifications:**
+  • Status changes
+  • Queue position alerts
+  • "Your turn!" notifications
+  • Completion notices
+  
+  Uses Supabase Realtime
+end note
+
+note bottom of history
+  **Audit Trail:**
+  Logs every token action:
+  • picked
+  • transferred
+  • completed
+  • rejected
+  • hold
+end note
+
+@enduml

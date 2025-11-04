@@ -1,5 +1,4 @@
 import '../config/supabase_config.dart';
-import '../providers/token_provider.dart';
 import '../models/service.dart';
 import 'database_inspector.dart';
 
@@ -194,7 +193,7 @@ class BookingTestUtility {
   }
 
   static void _printTestResults(Map<String, dynamic> results) {
-    print('\n' + '=' * 50);
+    print('\n${'=' * 50}');
     print('🎯 BOOKING SYSTEM TEST RESULTS');
     print('=' * 50);
     print('Test Time: ${results['timestamp']}');
@@ -219,12 +218,16 @@ class BookingTestUtility {
 
       if (testResult.containsKey('issues') && (testResult['issues'] as List).isNotEmpty) {
         print('   Issues:');
-        (testResult['issues'] as List).forEach((issue) => print('     - $issue'));
+        for (var issue in (testResult['issues'] as List)) {
+          print('     - $issue');
+        }
       }
 
       if (testResult.containsKey('recommendations') && (testResult['recommendations'] as List).isNotEmpty) {
         print('   Recommendations:');
-        (testResult['recommendations'] as List).forEach((rec) => print('     - $rec'));
+        for (var rec in (testResult['recommendations'] as List)) {
+          print('     - $rec');
+        }
       }
     });
 
@@ -232,7 +235,7 @@ class BookingTestUtility {
       print('\n❌ TEST UTILITY ERROR: ${results['error']}');
     }
 
-    print('\n' + '=' * 50);
+    print('\n${'=' * 50}');
 
     if (overallSuccess) {
       print('🎉 All tests passed! Token booking should work correctly.');

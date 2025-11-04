@@ -133,9 +133,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _showEditProfileDialog() {
-    final _formKey = GlobalKey<FormState>();
-    final _fullNameController = TextEditingController(text: userProfile?.fullName ?? '');
-    final _phoneController = TextEditingController(text: userProfile?.phone ?? '');
+    final formKey = GlobalKey<FormState>();
+    final fullNameController = TextEditingController(text: userProfile?.fullName ?? '');
+    final phoneController = TextEditingController(text: userProfile?.phone ?? '');
 
     showDialog(
       context: context,
@@ -143,12 +143,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return AlertDialog(
           title: const Text('Edit Profile'),
           content: Form(
-            key: _formKey,
+            key: formKey,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextFormField(
-                  controller: _fullNameController,
+                  controller: fullNameController,
                   decoration: const InputDecoration(
                     labelText: 'Full Name',
                     border: OutlineInputBorder(),
@@ -162,7 +162,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
                 const SizedBox(height: 16),
                 TextFormField(
-                  controller: _phoneController,
+                  controller: phoneController,
                   decoration: const InputDecoration(
                     labelText: 'Phone',
                     border: OutlineInputBorder(),
@@ -186,7 +186,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             TextButton(
               onPressed: () async {
-                if (_formKey.currentState!.validate()) {
+                if (formKey.currentState!.validate()) {
                   // Show loading
                   Navigator.of(context).pop();
                   setState(() => isLoading = true);
@@ -194,8 +194,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   try {
                     final updatedProfile = UserProfile(
                       id: userProfile?.id ?? _authService.getCurrentUser()?.id ?? '',
-                      fullName: _fullNameController.text.trim(),
-                      phone: _phoneController.text.trim(),
+                      fullName: fullNameController.text.trim(),
+                      phone: phoneController.text.trim(),
                       role: userProfile?.role ?? UserRole.customer,
                       isActive: true,
                       createdAt: userProfile?.createdAt ?? DateTime.now(),

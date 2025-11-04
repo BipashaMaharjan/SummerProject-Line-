@@ -218,24 +218,6 @@ class _ServiceSelectionScreenState extends State<ServiceSelectionScreen> {
                                     ),
                                   ),
                                 ],
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.access_time,
-                                      size: 16,
-                                      color: isSelected ? Colors.blue.shade600 : Colors.grey.shade500,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      'Est. ${service.estimatedTimeMinutes} minutes',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: isSelected ? Colors.blue.shade600 : Colors.grey.shade500,
-                                      ),
-                                    ),
-                                  ],
-                                ),
                               ],
                             ),
                             trailing: isSelected

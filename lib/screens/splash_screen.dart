@@ -66,7 +66,7 @@ class _SplashScreenState extends State<SplashScreen> {
             ),
             const SizedBox(height: 10),
             const Text(
-              'Management hello  System',
+              'Management System',
               style: TextStyle(
                 fontSize: 18,
                 color: Colors.white70,

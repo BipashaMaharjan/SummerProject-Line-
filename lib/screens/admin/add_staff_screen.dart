@@ -3,7 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
 
 class AddStaffScreen extends StatefulWidget {
-  const AddStaffScreen({Key? key}) : super(key: key);
+  const AddStaffScreen({super.key});
 
   @override
   _AddStaffScreenState createState() => _AddStaffScreenState();

@@ -23,12 +23,22 @@ class _UserTokensScreenState extends State<UserTokensScreen> with SingleTickerPr
     // Load user tokens when the screen is first displayed
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadUserTokens();
+      _setupRealtimeUpdates();
+    });
+  }
+
+  void _setupRealtimeUpdates() {
+    context.read<TokenProvider>().subscribeToTokenUpdates((data) {
+      if (mounted) {
+        _loadUserTokens();
+      }
     });
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    context.read<TokenProvider>().unsubscribeFromTokenUpdates();
     super.dispose();
   }
 
@@ -114,9 +124,123 @@ class _UserTokensScreenState extends State<UserTokensScreen> with SingleTickerPr
         final token = tokens[index];
         return Padding(
           padding: const EdgeInsets.only(bottom: 16.0),
-          child: TokenCard(token: token),
+          child: Column(
+            children: [
+              TokenCard(token: token),
+              if (token.status == TokenStatus.waiting || token.status == TokenStatus.processing)
+                _buildTokenActions(token),
+            ],
+          ),
         );
       },
     );
+  }
+
+  Widget _buildTokenActions(Token token) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          if (token.status == TokenStatus.waiting) ...[
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _postponeToken(token),
+                icon: const Icon(Icons.schedule),
+                label: const Text('Postpone'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.orange,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: () => _cancelToken(token),
+              icon: const Icon(Icons.cancel),
+              label: const Text('Cancel'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.red,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _postponeToken(Token token) async {
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Postpone Token'),
+        content: const Text('Your token will be moved to the end of the queue. Continue?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, 'User requested postponement'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Postpone'),
+          ),
+        ],
+      ),
+    );
+
+    if (reason != null) {
+      final success = await context.read<TokenProvider>().postponeToken(token.id, reason: reason);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(success ? 'Token postponed successfully' : 'Failed to postpone token'),
+            backgroundColor: success ? Colors.green : Colors.red,
+          ),
+        );
+        if (success) _loadUserTokens();
+      }
+    }
+  }
+
+  Future<void> _cancelToken(Token token) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancel Token'),
+        content: const Text('Are you sure you want to cancel this token? This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('No'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Yes, Cancel'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final success = await context.read<TokenProvider>().cancelToken(token.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(success ? 'Token cancelled successfully' : 'Failed to cancel token'),
+            backgroundColor: success ? Colors.green : Colors.red,
+          ),
+        );
+        if (success) _loadUserTokens();
+      }
+    }
   }
 }

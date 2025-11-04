@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
 import 'add_staff_screen.dart';
 
 class StaffManagementScreen extends StatefulWidget {
-  const StaffManagementScreen({Key? key}) : super(key: key);
+  const StaffManagementScreen({super.key});
 
   @override
   _StaffManagementScreenState createState() => _StaffManagementScreenState();

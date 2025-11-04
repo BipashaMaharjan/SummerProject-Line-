@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:major/config/supabase_config.dart';
 import 'package:provider/provider.dart';
+import 'package:nepali_date_picker/nepali_date_picker.dart' as nepali_picker;
 import '../../providers/token_provider.dart';
 import '../../models/service.dart';
+import '../../services/holiday_service.dart';
+import '../../services/nepali_calendar_service.dart';
 import '../home/home_screen.dart';
 
 class TokenConfirmationScreen extends StatefulWidget {
@@ -21,59 +24,84 @@ class _TokenConfirmationScreenState extends State<TokenConfirmationScreen> {
   bool _isBooking = false;
   DateTime? _selectedDate;
   final TextEditingController _dateController = TextEditingController();
+  final HolidayService _holidayService = HolidayService();
+  final NepaliCalendarService _nepaliCalendar = NepaliCalendarService();
+  List<DateTime> _holidays = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHolidays();
+  }
+
+  Future<void> _loadHolidays() async {
+    try {
+      final holidays = await _holidayService.getHolidayDates();
+      setState(() {
+        _holidays = holidays;
+      });
+      debugPrint('✅ Loaded ${_holidays.length} holidays for date picker');
+    } catch (e) {
+      debugPrint('⚠️ Error loading holidays: $e');
+      // Continue without holidays if fetch fails
+    }
+  }
 
   Future<void> _selectDate(BuildContext context) async {
     try {
-      debugPrint('Opening date picker...');
+      debugPrint('Opening Nepali date picker...');
       
       final DateTime today = DateTime.now();
-      final DateTime initialDate = _selectedDate ?? today;
+      final nepali_picker.NepaliDateTime initialNepaliDate = _selectedDate != null 
+          ? nepali_picker.NepaliDateTime.fromDateTime(_selectedDate!)
+          : nepali_picker.NepaliDateTime.fromDateTime(today);
       
-      final DateTime? picked = await showDatePicker(
+      final nepali_picker.NepaliDateTime? pickedNepali = await nepali_picker.showMaterialDatePicker(
         context: context,
-        initialDate: initialDate,
-        firstDate: DateTime.now(),
-        lastDate: DateTime.now().add(const Duration(days: 30)),
-        helpText: 'Select appointment date',
-        cancelText: 'Cancel',
-        confirmText: 'Select',
-        selectableDayPredicate: (DateTime date) {
-          final DateTime today = DateTime.now();
-          final bool isToday = date.year == today.year && 
-                              date.month == today.month && 
-                              date.day == today.day;
+        initialDate: initialNepaliDate,
+        firstDate: nepali_picker.NepaliDateTime.fromDateTime(today),
+        lastDate: nepali_picker.NepaliDateTime.fromDateTime(today.add(const Duration(days: 30))),
+        initialDatePickerMode: DatePickerMode.day,
+        selectableDayPredicate: (nepali_picker.NepaliDateTime nepaliDate) {
+          // Convert Nepali date to English date for validation
+          final DateTime englishDate = nepaliDate.toDateTime();
           
-          // Allow today as exception, otherwise disable weekends
+          final DateTime today = DateTime.now();
+          final bool isToday = englishDate.year == today.year && 
+                              englishDate.month == today.month && 
+                              englishDate.day == today.day;
+          
+          // Allow today as exception
           if (isToday) {
-            return true; // Allow today even if it's weekend
+            return true; // Allow today even if it's Saturday
           }
           
-          // Disable weekends for other dates
-          if (date.weekday == DateTime.saturday || date.weekday == DateTime.sunday) {
+          // Disable Saturday (Nepal's weekend day - Sunday is a working day)
+          if (englishDate.weekday == DateTime.saturday) {
             return false;
           }
+          
+          // Disable holidays - appointments cannot be scheduled on holidays
+          final normalizedDate = DateTime(englishDate.year, englishDate.month, englishDate.day);
+          final isHoliday = _holidays.any((holiday) {
+            final normalizedHoliday = DateTime(holiday.year, holiday.month, holiday.day);
+            return normalizedHoliday == normalizedDate;
+          });
+          
+          if (isHoliday) {
+            return false; // Cannot schedule appointments on holidays
+          }
+          
           return true;
-        },
-        builder: (context, child) {
-          return Theme(
-            data: Theme.of(context).copyWith(
-              colorScheme: ColorScheme.light(
-                primary: Colors.blue.shade600,
-                onPrimary: Colors.white,
-                surface: Colors.white,
-                onSurface: Colors.black,
-              ),
-            ),
-            child: child!,
-          );
         },
       );
       
-      if (picked != null) {
-        debugPrint('Date selected: $picked');
+      if (pickedNepali != null) {
+        final DateTime pickedEnglish = pickedNepali.toDateTime();
+        debugPrint('Date selected: $pickedEnglish (Nepali: $pickedNepali)');
         setState(() {
-          _selectedDate = picked;
-          _dateController.text = _formatDate(picked);
+          _selectedDate = pickedEnglish;
+          _dateController.text = _formatDate(pickedEnglish);
         });
         debugPrint('Date state updated successfully');
       } else {
@@ -247,7 +275,9 @@ class _TokenConfirmationScreenState extends State<TokenConfirmationScreen> {
                     '• Please arrive 10 minutes before your estimated time\n'
                     '• Bring all required documents\n'
                     '• You will receive notifications about your queue status\n'
-                    '• Token is valid only for today',
+                    '• Appointments cannot be scheduled on Saturdays or holidays\n'
+                    '• You can book tokens on any day, but appointments must be on working days\n'
+                    '• Note: Sunday is a working day in Nepal',
                     style: TextStyle(
                       color: Colors.orange.shade700,
                       height: 1.5,
@@ -355,11 +385,8 @@ class _TokenConfirmationScreenState extends State<TokenConfirmationScreen> {
   }
 
   String _formatDate(DateTime date) {
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-    ];
-    return '${date.day} ${months[date.month - 1]} ${date.year}';
+    // Show both English and Nepali dates
+    return _nepaliCalendar.formatDateWithNepali(date);
   }
 
   Future<void> _bookToken() async {
@@ -390,8 +417,7 @@ class _TokenConfirmationScreenState extends State<TokenConfirmationScreen> {
           .maybeSingle();
 
       // If reception room not found, create it
-      if (receptionRoom == null) {
-        receptionRoom = await SupabaseConfig.client
+      receptionRoom ??= await SupabaseConfig.client
             .from('rooms')
             .insert({
               'name': 'Reception',
@@ -400,7 +426,6 @@ class _TokenConfirmationScreenState extends State<TokenConfirmationScreen> {
             })
             .select()
             .single();
-      }
 
       // Create the token
       final success = await tokenProvider.createToken(

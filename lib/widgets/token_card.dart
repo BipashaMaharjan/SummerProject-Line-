@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/token.dart';
+import '../screens/user/token_tracking_screen.dart';
 
 class TokenCard extends StatelessWidget {
   final Token token;
@@ -176,7 +177,15 @@ class TokenCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(12.0),
         onTap: () {
-          // TODO: Implement token details navigation
+          // Navigate to real-time tracking for active tokens
+          if (token.status.isActive) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => TokenTrackingScreen(token: token),
+              ),
+            );
+          }
         },
         child: Padding(
           padding: const EdgeInsets.all(16.0),
@@ -222,6 +231,33 @@ class TokenCard extends StatelessWidget {
               ..._buildStatusInfo(),
               if (showActionButton && onStartOperation != null && token.status == TokenStatus.waiting)
                 _buildActionButton(),
+              // Add Track Live indicator for active tokens
+              if (token.status.isActive) ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: Colors.green,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'Tap to track live',
+                      style: TextStyle(
+                        color: Colors.green,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.arrow_forward_ios, size: 12, color: Colors.green),
+                  ],
+                ),
+              ],
             ],
           ),
         ),

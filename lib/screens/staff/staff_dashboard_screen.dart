@@ -22,6 +22,17 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen>
     _tabController = TabController(length: 3, vsync: this);
     // Load on first frame
     WidgetsBinding.instance.addPostFrameCallback((_) => _refresh());
+    // Setup real-time updates
+    _setupRealtimeUpdates();
+  }
+
+  void _setupRealtimeUpdates() {
+    context.read<TokenProvider>().subscribeToTokenUpdates((data) {
+      if (mounted) {
+        // Tokens will auto-refresh via provider
+        setState(() {});
+      }
+    });
   }
 
   Future<void> _refresh() async {
@@ -32,6 +43,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen>
   @override
   void dispose() {
     _tabController.dispose();
+    context.read<TokenProvider>().unsubscribeFromTokenUpdates();
     super.dispose();
   }
 
@@ -67,6 +79,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen>
               onStart: _onStart, 
               onComplete: _onComplete,
               onTransfer: _onTransferToNextRoom,
+              onReject: _onReject,
             ),
             _TokenList(
               tokens: hold, 
@@ -74,6 +87,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen>
               onStart: _onStart, 
               onComplete: _onComplete,
               onTransfer: _onTransferToNextRoom,
+              onReject: _onReject,
             ),
             _TokenList(
               tokens: processing, 
@@ -81,6 +95,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen>
               onStart: _onStart, 
               onComplete: _onComplete,
               onTransfer: _onTransferToNextRoom,
+              onReject: _onReject,
             ),
           ],
         ),
@@ -214,6 +229,24 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen>
     }
   }
 
+  Future<void> _onReject(Token token) async {
+    // Show dialog to get rejection reason
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (context) => _RejectDialog(),
+    );
+
+    if (reason != null && reason.isNotEmpty) {
+      final ok = await context.read<TokenProvider>().rejectToken(token.id, reason);
+      if (ok) {
+        _snack('Rejected ${token.displayToken}. Next token advanced.');
+        await _refresh();
+      } else {
+        _snack('Failed to reject token');
+      }
+    }
+  }
+
   void _snack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
@@ -226,6 +259,7 @@ class _TokenList extends StatelessWidget {
   final Future<void> Function(Token) onStart;
   final Future<void> Function(Token) onComplete;
   final Future<void> Function(Token) onTransfer;
+  final Future<void> Function(Token) onReject;
 
   const _TokenList({
     required this.tokens,
@@ -233,6 +267,7 @@ class _TokenList extends StatelessWidget {
     required this.onStart,
     required this.onComplete,
     required this.onTransfer,
+    required this.onReject,
   });
 
   @override
@@ -274,6 +309,7 @@ class _TokenList extends StatelessWidget {
               onStart: onStart, 
               onComplete: onComplete,
               onTransfer: onTransfer,
+              onReject: onReject,
             ),
           ),
         );
@@ -287,11 +323,13 @@ class _Actions extends StatelessWidget {
   final Future<void> Function(Token) onStart;
   final Future<void> Function(Token) onComplete;
   final Future<void> Function(Token) onTransfer;
+  final Future<void> Function(Token) onReject;
   const _Actions({
     required this.token, 
     required this.onStart, 
     required this.onComplete,
     required this.onTransfer,
+    required this.onReject,
   });
 
   @override
@@ -309,6 +347,12 @@ class _Actions extends StatelessWidget {
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            IconButton(
+              icon: const Icon(Icons.cancel),
+              tooltip: 'Reject',
+              onPressed: () => onReject(token),
+              color: Colors.red,
+            ),
             IconButton(
               icon: const Icon(Icons.arrow_forward),
               tooltip: 'Next Room',
@@ -328,5 +372,89 @@ class _Actions extends StatelessWidget {
       case TokenStatus.noShow:
         return const SizedBox.shrink();
     }
+  }
+}
+
+class _RejectDialog extends StatefulWidget {
+  @override
+  State<_RejectDialog> createState() => _RejectDialogState();
+}
+
+class _RejectDialogState extends State<_RejectDialog> {
+  final _controller = TextEditingController();
+  String? _selectedReason;
+
+  final List<String> _commonReasons = [
+    'Trial Failure',
+    'Biometric Failure',
+    'Incomplete Documents',
+    'Payment Issue',
+    'Customer Request',
+    'Other',
+  ];
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Reject Token'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Select rejection reason:'),
+            const SizedBox(height: 12),
+            ..._commonReasons.map((reason) => RadioListTile<String>(
+              title: Text(reason),
+              value: reason,
+              groupValue: _selectedReason,
+              onChanged: (value) {
+                setState(() => _selectedReason = value);
+              },
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            )),
+            if (_selectedReason == 'Other') ...[
+              const SizedBox(height: 12),
+              TextField(
+                controller: _controller,
+                decoration: const InputDecoration(
+                  labelText: 'Specify reason',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 2,
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            final reason = _selectedReason == 'Other'
+                ? _controller.text.trim()
+                : _selectedReason;
+            if (reason != null && reason.isNotEmpty) {
+              Navigator.pop(context, reason);
+            }
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('Reject'),
+        ),
+      ],
+    );
   }
 }

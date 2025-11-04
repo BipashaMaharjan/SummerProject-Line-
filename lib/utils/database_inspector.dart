@@ -24,7 +24,7 @@ class DatabaseInspector {
           .limit(1);
 
       if (response.isNotEmpty) {
-        return response[0] as Map<String, dynamic>;
+        return response[0];
       }
       return null;
     } catch (e) {
@@ -139,7 +139,9 @@ class DatabaseInspector {
     if (issues.isEmpty) {
       print('  ✅ No issues found');
     } else {
-      issues.forEach((issue) => print('  ❌ $issue'));
+      for (var issue in issues) {
+        print('  ❌ $issue');
+      }
     }
 
     print('\nRECOMMENDATIONS:');
@@ -147,7 +149,9 @@ class DatabaseInspector {
     if (recommendations.isEmpty) {
       print('  ✅ No recommendations');
     } else {
-      recommendations.forEach((rec) => print('  💡 $rec'));
+      for (var rec in recommendations) {
+        print('  💡 $rec');
+      }
     }
 
     print('\n=== END REPORT ===\n');

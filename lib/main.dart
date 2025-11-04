@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'config/supabase_config.dart';
 import 'providers/auth_provider.dart';
 import 'providers/token_provider.dart';
+import 'providers/notification_provider.dart';
 
 // Global config
 late final Map<String, dynamic> appConfig;
@@ -66,6 +67,7 @@ class MyApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => TokenProvider()),
+        ChangeNotifierProvider(create: (_) => NotificationProvider()),
       ],
       child: MaterialApp(
         title: isAdminMode ? 'Admin - Digital Queue' : 'Digital Queue Management',
