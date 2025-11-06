@@ -87,13 +87,27 @@ class _QueueEstimationWidgetState extends State<QueueEstimationWidget> {
   void _startCountdown() {
     _countdownTimer?.cancel();
     
-    // Check queue status every minute (don't just decrease time)
-    // The countdown should only decrease when queue actually moves
-    _countdownTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
-      if (mounted) {
-        // Refresh queue data to get actual position
-        // This will recalculate the wait time based on current queue
-        _loadQueueInfo();
+    // Update countdown every second for smooth display
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted && _remainingMinutes > 0 && _countdownStartTime != null) {
+        // Calculate elapsed time since countdown started (in seconds)
+        final elapsed = DateTime.now().difference(_countdownStartTime!);
+        final elapsedSeconds = elapsed.inSeconds;
+        
+        // Calculate new remaining time in seconds
+        final totalSeconds = (_enhancedInfo?.realTimeCountdownMinutes ?? 0) * 60;
+        final newRemainingSeconds = totalSeconds - elapsedSeconds;
+        
+        setState(() {
+          // Convert back to minutes for display
+          _remainingMinutes = (newRemainingSeconds / 60).ceil();
+          if (_remainingMinutes < 0) _remainingMinutes = 0;
+        });
+        
+        // If countdown reaches 0, stop timer
+        if (newRemainingSeconds <= 0) {
+          timer.cancel();
+        }
       } else {
         timer.cancel();
       }
@@ -103,7 +117,34 @@ class _QueueEstimationWidgetState extends State<QueueEstimationWidget> {
   String _formatCountdownTime() {
     if (_remainingMinutes <= 0) {
       return 'Your turn is coming up!';
-    } else if (_remainingMinutes == 1) {
+    }
+    
+    // Calculate actual seconds remaining for precise display
+    if (_countdownStartTime != null && _enhancedInfo != null) {
+      final elapsed = DateTime.now().difference(_countdownStartTime!);
+      final totalSeconds = (_enhancedInfo!.realTimeCountdownMinutes * 60);
+      final remainingSeconds = totalSeconds - elapsed.inSeconds;
+      
+      if (remainingSeconds <= 0) {
+        return 'Your turn is coming up!';
+      }
+      
+      final minutes = (remainingSeconds / 60).floor();
+      final seconds = remainingSeconds % 60;
+      
+      // Format as MM:SS for values under 60 minutes
+      if (minutes < 60) {
+        return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+      } else {
+        // For longer waits, show hours and minutes
+        final hours = (minutes / 60).floor();
+        final remainingMins = minutes % 60;
+        return '$hours:${remainingMins.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+      }
+    }
+    
+    // Fallback to minute-only display
+    if (_remainingMinutes == 1) {
       return '~1 minute';
     } else if (_remainingMinutes < 60) {
       return '~$_remainingMinutes minutes';

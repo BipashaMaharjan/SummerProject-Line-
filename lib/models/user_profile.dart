@@ -4,6 +4,7 @@ class UserProfile {
   final String? phone;
   final UserRole role;
   final bool isActive;
+  final String? assignedRoomId; // For staff - their assigned room
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -13,6 +14,7 @@ class UserProfile {
     this.phone,
     required this.role,
     required this.isActive,
+    this.assignedRoomId,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -27,6 +29,7 @@ class UserProfile {
         orElse: () => UserRole.customer,
       ),
       isActive: json['is_active'] ?? true,
+      assignedRoomId: json['assigned_room_id'],
       createdAt: DateTime.parse(json['created_at']),
       updatedAt: DateTime.parse(json['updated_at']),
     );
@@ -39,6 +42,7 @@ class UserProfile {
       'phone': phone,
       'role': role.name,
       'is_active': isActive,
+      'assigned_room_id': assignedRoomId,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -50,6 +54,7 @@ class UserProfile {
     String? phone,
     UserRole? role,
     bool? isActive,
+    String? assignedRoomId,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -59,6 +64,7 @@ class UserProfile {
       phone: phone ?? this.phone,
       role: role ?? this.role,
       isActive: isActive ?? this.isActive,
+      assignedRoomId: assignedRoomId ?? this.assignedRoomId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

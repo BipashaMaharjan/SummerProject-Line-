@@ -4,15 +4,17 @@ import '../../providers/auth_provider.dart';
 import '../../providers/token_provider.dart';
 import '../../providers/notification_provider.dart';
 import '../../models/user_profile.dart';
+import '../../models/token.dart';
 import '../../config/supabase_config.dart';
 import '../auth/login_screen.dart';
 import '../booking/service_selection_screen.dart';
 import '../tokens/user_tokens_screen.dart';
 import '../tokens/token_history_screen.dart';
-import '../staff/staff_dashboard_screen.dart';
+import '../staff/enhanced_staff_dashboard.dart';
 import '../profile/edit_profile_screen.dart';
 import '../settings/settings_screen.dart';
 import '../support/help_support_screen.dart';
+import '../../widgets/token_card.dart';
 import 'notifications_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -33,7 +35,7 @@ class _HomeScreenState extends State<HomeScreen> {
   ];
 
   late final List<Widget> _staffScreens = [
-    const StaffDashboardScreen(),
+    const EnhancedStaffDashboard(),
     const ServicesTab(),
     const TokensTab(),
     const ProfileTab(),
@@ -133,148 +135,260 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class DashboardTab extends StatelessWidget {
+class DashboardTab extends StatefulWidget {
   const DashboardTab({super.key});
 
   @override
+  State<DashboardTab> createState() => _DashboardTabState();
+}
+
+class _DashboardTabState extends State<DashboardTab> {
+  bool _isLoading = true;
+  List<Token> _activeTokens = [];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadActiveTokens();
+      _setupRealtimeUpdates();
+    });
+  }
+
+  void _setupRealtimeUpdates() {
+    context.read<TokenProvider>().subscribeToTokenUpdates((data) {
+      if (mounted) {
+        _loadActiveTokens();
+      }
+    });
+  }
+
+  Future<void> _loadActiveTokens() async {
+    if (mounted) setState(() => _isLoading = true);
+    
+    final tokenProvider = Provider.of<TokenProvider>(context, listen: false);
+    await tokenProvider.loadUserTokens();
+    
+    if (mounted) {
+      // Filter for active tokens (processing, waiting, and hold)
+      final allActive = tokenProvider.userTokens
+          .where((token) => 
+              token.status == TokenStatus.processing || 
+              token.status == TokenStatus.waiting ||
+              token.status == TokenStatus.hold)
+          .toList();
+      
+      // Sort by priority: processing > waiting > hold, then by date
+      allActive.sort((a, b) {
+        // Priority order: processing (1) > waiting (2) > hold (3)
+        final aPriority = a.status == TokenStatus.processing ? 1 
+                        : a.status == TokenStatus.waiting ? 2 : 3;
+        final bPriority = b.status == TokenStatus.processing ? 1 
+                        : b.status == TokenStatus.waiting ? 2 : 3;
+        
+        if (aPriority != bPriority) {
+          return aPriority.compareTo(bPriority);
+        }
+        // If same priority, show newest first
+        return b.createdAt.compareTo(a.createdAt);
+      });
+      
+      // Show only the most important token (first one after sorting)
+      _activeTokens = allActive.isNotEmpty ? [allActive.first] : [];
+      
+      setState(() => _isLoading = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Welcome Card
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.blue.shade600, Colors.blue.shade400],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+    return RefreshIndicator(
+      onRefresh: _loadActiveTokens,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Welcome Card
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.blue.shade600, Colors.blue.shade400],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
               ),
-              borderRadius: BorderRadius.circular(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Welcome Back!',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Book your service token quickly and easily',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.9),
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            
+            const SizedBox(height: 24),
+            
+            // Quick Actions
+            const Text(
+              'Quick Actions',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            
+            const SizedBox(height: 16),
+            
+            Row(
               children: [
-                const Text(
-                  'Welcome Back!',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
+                Expanded(
+                  child: _buildQuickActionCard(
+                    icon: Icons.add_circle_outline,
+                    title: 'New Token',
+                    subtitle: 'Book a service',
+                    color: Colors.green,
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => const ServiceSelectionScreen(),
+                        ),
+                      );
+                    },
                   ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Book your service token quickly and easily',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
-                    fontSize: 16,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildQuickActionCard(
+                    icon: Icons.history,
+                    title: 'History',
+                    subtitle: 'View past tokens',
+                    color: Colors.orange,
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => const TokenHistoryScreen(),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ],
             ),
-          ),
-          
-          const SizedBox(height: 24),
-          
-          // Quick Actions
-          const Text(
-            'Quick Actions',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          
-          const SizedBox(height: 16),
-          
-          Row(
-            children: [
-              Expanded(
-                child: _buildQuickActionCard(
-                  icon: Icons.add_circle_outline,
-                  title: 'New Token',
-                  subtitle: 'Book a service',
-                  color: Colors.green,
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => const ServiceSelectionScreen(),
-                      ),
-                    );
-                  },
-                ),
+            
+            const SizedBox(height: 24),
+
+            // Current Status
+            const Text(
+              'Current Status',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildQuickActionCard(
-                  icon: Icons.history,
-                  title: 'History',
-                  subtitle: 'View past tokens',
-                  color: Colors.orange,
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => const TokenHistoryScreen(),
+            ),
+
+            const SizedBox(height: 16),
+
+            if (_isLoading)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(32),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: const Center(
+                  child: CircularProgressIndicator(),
+                ),
+              )
+            else if (_activeTokens.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: const Column(
+                  children: [
+                    Icon(
+                      Icons.check_circle_outline,
+                      size: 48,
+                      color: Colors.grey,
+                    ),
+                    SizedBox(height: 12),
+                    Text(
+                      'No Active Tokens',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey,
                       ),
-                    );
-                  },
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Book a service to get started',
+                      style: TextStyle(
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
                 ),
+              )
+            else
+              Column(
+                children: [
+                  // Show the most important active token prominently
+                  ..._activeTokens.map((token) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: TokenCard(token: token),
+                  )),
+                  
+                  // "View All Tokens" button
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        // Switch to My Tokens tab (index 2)
+                        final homeScreenState = context.findAncestorStateOfType<_HomeScreenState>();
+                        homeScreenState?.setState(() {
+                          homeScreenState._selectedIndex = 2;
+                        });
+                      },
+                      icon: const Icon(Icons.list_alt),
+                      label: const Text('View All My Tokens'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        side: BorderSide(color: Colors.blue.shade600),
+                        foregroundColor: Colors.blue.shade600,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-          
-          const SizedBox(height: 24),
-
-          // Current Status
-          const Text(
-            'Current Status',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade300),
-            ),
-            child: const Column(
-              children: [
-                Icon(
-                  Icons.check_circle_outline,
-                  size: 48,
-                  color: Colors.grey,
-                ),
-                SizedBox(height: 12),
-                Text(
-                  'No Active Tokens',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey,
-                  ),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  'Book a service to get started',
-                  style: TextStyle(
-                    color: Colors.grey,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

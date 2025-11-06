@@ -30,63 +30,100 @@ class _AddStaffScreenState extends State<AddStaffScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Create auth user using regular signUp (bypasses admin API requirement)
+      debugPrint('🔄 Creating staff account...');
+      debugPrint('📧 Email: ${_emailController.text.trim()}');
+      
+      // Create auth user with minimal data
       final authResponse = await SupabaseConfig.client.auth.signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
-        emailRedirectTo: null, // Disable email confirmation
         data: {
           'full_name': _nameController.text.trim(),
           'role': 'staff',
         },
       );
 
-      if (authResponse.user != null) {
-        print('Auth user created: ${authResponse.user!.id}'); // Debug
-        
-        // Manually confirm the email for staff accounts
-        await SupabaseConfig.client.rpc('confirm_user_email', params: {
-          'user_id': authResponse.user!.id,
-        });
-        
-        // Create profile in the database
-        final profileResponse = await SupabaseConfig.client.from('profiles').upsert({
-          'id': authResponse.user!.id,
-          'email': _emailController.text.trim(),
-          'full_name': _nameController.text.trim(),
-          'role': 'staff',
-          'is_active': true,
-          'created_at': DateTime.now().toIso8601String(),
-          'updated_at': DateTime.now().toIso8601String(),
-        });
-        
-        print('Profile created: $profileResponse'); // Debug
+      debugPrint('📦 Auth response: ${authResponse.user?.id}');
 
-        // Create staff record with only ID (minimal approach)
-        await SupabaseConfig.client.from('staff').upsert({
-          'id': authResponse.user!.id,
-        });
-
-        if (!mounted) return;
-        
-        // Show success message and go back
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Staff account created successfully')),
-        );
-        Navigator.pop(context);
-      } else {
-        throw Exception('Failed to create user account');
+      if (authResponse.user == null) {
+        throw Exception('Failed to create auth user - no user returned');
       }
+
+      final userId = authResponse.user!.id;
+      debugPrint('✅ Auth user created: $userId');
+      
+      // Wait for trigger
+      await Future.delayed(const Duration(seconds: 1));
+      
+      // Check if profile exists
+      try {
+        final profileCheck = await SupabaseConfig.client
+            .from('profiles')
+            .select()
+            .eq('id', userId)
+            .maybeSingle();
+        
+        if (profileCheck != null) {
+          debugPrint('✅ Profile exists: ${profileCheck['full_name']}');
+        } else {
+          debugPrint('⚠️ Profile not found, creating...');
+          // Create profile manually
+          await SupabaseConfig.client.from('profiles').insert({
+            'id': userId,
+            'email': _emailController.text.trim(),
+            'full_name': _nameController.text.trim(),
+            'role': 'staff',
+            'is_active': true,
+          });
+          debugPrint('✅ Profile created manually');
+        }
+      } catch (e) {
+        debugPrint('❌ Profile error: $e');
+        throw Exception('Failed to create profile: $e');
+      }
+
+      // Confirm email immediately for staff accounts
+      try {
+        await SupabaseConfig.client.rpc('confirm_user_email', params: {
+          'user_id': userId,
+        });
+        debugPrint('✅ Email confirmed automatically');
+      } catch (e) {
+        debugPrint('⚠️ Email confirmation failed: $e');
+        debugPrint('   Staff can still login, but may need to verify email');
+      }
+
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ Staff account created successfully!\nEmail: ${_emailController.text.trim()}'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      
+      Navigator.pop(context);
+      
     } on AuthException catch (e) {
+      debugPrint('❌ Auth error: ${e.message}');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.message}')),
+        SnackBar(
+          content: Text('Auth Error: ${e.message}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
       );
     } catch (e) {
+      debugPrint('❌ General error: $e');
       if (!mounted) return;
-      print('Detailed error creating staff: $e'); // Debug logging
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to create staff account: $e')),
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
       );
     } finally {
       if (mounted) {

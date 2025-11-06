@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../screens/home/home_screen.dart';
 import '../../screens/admin/admin_dashboard_screen.dart';
-import '../../screens/staff/staff_dashboard_screen.dart';
 import 'signup_screen.dart';
 import 'forgot_password_screen.dart';
 
@@ -44,14 +43,9 @@ class _LoginScreenState extends State<LoginScreen> {
           context,
           MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
         );
-      } else if (authProvider.isStaff || email.endsWith('@work.com')) {
-        // Redirect to staff dashboard for @work.com emails
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const StaffDashboardScreen()),
-        );
       } else {
-        // Regular users
+        // All users (staff and customers) go to HomeScreen
+        // HomeScreen will automatically show the correct dashboard based on role
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const HomeScreen()),

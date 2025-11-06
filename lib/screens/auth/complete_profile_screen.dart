@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
-import 'login_screen.dart';
+import '../home/home_screen.dart';
 
 class CompleteProfileScreen extends StatefulWidget {
   final String email;
@@ -50,22 +50,18 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
 
     try {
       final user = SupabaseConfig.client.auth.currentUser;
-      if (user == null) throw Exception('User not authenticated');
+      if (user == null) {
+        throw Exception('User not authenticated. Please start the signup process again.');
+      }
 
       print('🔄 DEBUG: Saving profile for user: ${user.id}');
       print('🔄 DEBUG: Name to save: $name');
+      print('🔄 DEBUG: Email: ${widget.email}');
 
-      // Update user password and metadata
-      await SupabaseConfig.client.auth.updateUser(
-        UserAttributes(
-          password: password,
-          data: {'name': name}, // Save name to auth metadata
-        ),
-      );
-
-      // Save profile data to database
+      // First, save profile data to database
       await SupabaseConfig.client.from('profiles').upsert({
         'id': user.id,
+        'email': widget.email,
         'full_name': name,
         'role': 'customer',
         'is_active': true,
@@ -73,32 +69,68 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
         'updated_at': DateTime.now().toIso8601String(),
       });
 
-      print('✅ DEBUG: Profile saved successfully!');
+      print('✅ DEBUG: Profile saved to database');
+
+      // Then update user password and metadata
+      // This will keep the user logged in
+      await SupabaseConfig.client.auth.updateUser(
+        UserAttributes(
+          password: password,
+          data: {
+            'name': name,
+            'full_name': name,
+          },
+        ),
+      );
+
+      print('✅ DEBUG: User password and metadata updated');
+
+      // Verify the session is still active
+      final session = SupabaseConfig.client.auth.currentSession;
+      if (session == null) {
+        throw Exception('Session lost during profile update');
+      }
+
+      print('✅ DEBUG: Session verified, user still authenticated');
+      print('✅ DEBUG: Profile setup completed successfully!');
 
       if (!mounted) return;
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'Account setup completed! 🎉\nPlease login with your new password.',
-            style: const TextStyle(fontSize: 14),
+          content: const Text(
+            'Account setup completed! 🎉\nWelcome to Digital Queue Management!',
+            style: TextStyle(fontSize: 14),
           ),
           backgroundColor: Colors.green,
-          duration: const Duration(seconds: 3),
+          duration: const Duration(seconds: 2),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       );
 
+      // Navigate to home screen while keeping user logged in
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
       );
     } catch (e) {
       print('❌ DEBUG: Error completing profile: $e');
       if (!mounted) return;
+      
+      String errorMessage = 'Error: $e';
+      if (e.toString().contains('not authenticated')) {
+        errorMessage = 'Session expired. Please start the signup process again.';
+      } else if (e.toString().contains('Session lost')) {
+        errorMessage = 'Session was lost. Please try logging in with your new password.';
+      }
+      
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
       );
     } finally {
       setState(() => isLoading = false);

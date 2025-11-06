@@ -1,0 +1,71 @@
+@startuml Digital_Queue_Management_Sequence_Diagram
+
+' Styling for professional look
+skinparam linetype ortho
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+skinparam titleFontSize 16
+
+' Colors
+skinparam participant {
+  BackgroundColor LightBlue
+  BorderColor DarkBlue
+  BorderThickness 2
+}
+
+skinparam actor {
+  BackgroundColor LightYellow
+  BorderColor DarkOrange
+  BorderThickness 2
+}
+
+skinparam database {
+  BackgroundColor LightGreen
+  BorderColor DarkGreen
+  BorderThickness 2
+}
+
+title Digital Queue Management System
+
+actor Customer
+participant "Mobile App" as App
+database "Database" as DB
+participant "Notification" as Notif
+actor Staff
+participant "Staff Dashboard" as StaffApp
+
+== Book Token ==
+
+Customer -> App : Login and select service
+App -> DB : Create token (WAITING)
+DB --> App : Token T67591 created
+App -> Notif : Send notification
+Notif --> Customer : "Token booked"
+App --> Customer : Show token and position
+
+== Process Token ==
+
+Staff -> StaffApp : View queue
+StaffApp -> DB : Get waiting tokens
+DB --> StaffApp : Display queue
+
+Staff -> StaffApp : Call next token
+StaffApp -> DB : Update status (PROCESSING)
+DB --> StaffApp : Status updated
+StaffApp -> Notif : Notify customer
+Notif --> Customer : "Token being called"
+
+Staff -> StaffApp : Complete service
+StaffApp -> DB : Update status (COMPLETED)
+DB --> StaffApp : Token completed
+StaffApp -> Notif : Send notification
+Notif --> Customer : "Service completed"
+
+== View History ==
+
+Customer -> App : View history
+App -> DB : Get user tokens
+DB --> App : Return tokens
+App --> Customer : Display history
+
+@enduml

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../providers/token_provider.dart';
 import '../../widgets/token_card.dart';
 import '../../models/token.dart';
+import '../home/home_screen.dart';
 
 class UserTokensScreen extends StatefulWidget {
   const UserTokensScreen({super.key});
@@ -69,6 +70,16 @@ class _UserTokensScreenState extends State<UserTokensScreen> with SingleTickerPr
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Tokens'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            // Navigate to HomeScreen instead of just popping
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (context) => const HomeScreen()),
+              (route) => false,
+            );
+          },
+        ),
         bottom: TabBar(
           controller: _tabController,
           tabs: const [

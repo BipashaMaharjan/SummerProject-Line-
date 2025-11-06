@@ -3,6 +3,7 @@ import 'package:major/config/supabase_config.dart';
 import 'package:provider/provider.dart';
 import 'package:nepali_date_picker/nepali_date_picker.dart' as nepali_picker;
 import '../../providers/token_provider.dart';
+import '../../providers/auth_provider.dart';
 import '../../models/service.dart';
 import '../../services/holiday_service.dart';
 import '../../services/nepali_calendar_service.dart';
@@ -395,6 +396,33 @@ class _TokenConfirmationScreenState extends State<TokenConfirmationScreen> {
     setState(() => _isBooking = true);
 
     try {
+      // Check authentication first
+      final session = SupabaseConfig.client.auth.currentSession;
+      final user = SupabaseConfig.client.auth.currentUser;
+      
+      if (session == null || user == null) {
+        debugPrint('❌ User not authenticated when trying to book');
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('You have been logged out. Please log in again to book a token.'),
+            backgroundColor: Colors.red,
+            action: SnackBarAction(
+              label: 'Login',
+              textColor: Colors.white,
+              onPressed: () {
+                Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+              },
+            ),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+        setState(() => _isBooking = false);
+        return;
+      }
+      
+      debugPrint('✅ User authenticated: ${user.email}');
+      
       // Validate date selection
       if (_selectedDate == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -427,7 +455,23 @@ class _TokenConfirmationScreenState extends State<TokenConfirmationScreen> {
             .select()
             .single();
 
-      // Create the token
+      // Get user ID from AuthProvider
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final userId = authProvider.user?.id;
+      
+      if (userId == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Session expired. Please log in again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        setState(() => _isBooking = false);
+        return;
+      }
+      
+      // Create the token with userId from AuthProvider
       final success = await tokenProvider.createToken(
         serviceId: widget.service.id,
         serviceName: widget.service.name,
@@ -435,6 +479,7 @@ class _TokenConfirmationScreenState extends State<TokenConfirmationScreen> {
         roomId: receptionRoom['id'],
         roomName: receptionRoom['name'],
         scheduledDate: formattedDate,
+        userId: userId, // Pass userId from AuthProvider
       );
 
       if (!mounted) return;

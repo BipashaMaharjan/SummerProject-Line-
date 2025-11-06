@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:major/screens/staff/enhanced_staff_dashboard.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/supabase_config.dart';
 import '../models/user_profile.dart';import '../screens/auth/login_screen.dart';
 import '../screens/home/home_screen.dart';
 import '../screens/admin/admin_dashboard_screen.dart';
-import '../screens/staff/staff_dashboard_screen.dart';
 
 class AuthProvider with ChangeNotifier {
   User? _user;
@@ -28,9 +28,24 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<void> _initializeAuth() async {
+    // Load current session if exists
+    final session = SupabaseConfig.client.auth.currentSession;
+    if (session != null) {
+      _user = session.user;
+      await _loadProfile(session.user.id);
+      notifyListeners();
+    }
+    
     // Set up auth state listener
     SupabaseConfig.client.auth.onAuthStateChange.listen((data) async {
       final user = data.session?.user;
+      final event = data.event;
+      
+      if (kDebugMode) {
+        print('🔐 Auth state changed: $event');
+        print('🔐 User: ${user?.id}');
+      }
+      
       _user = user;
       
       if (user != null) {
@@ -91,14 +106,67 @@ class AuthProvider with ChangeNotifier {
           .from('profiles')
           .select()
           .eq('id', userId)
-          .single();
+          .maybeSingle();
 
-      _profile = UserProfile.fromJson(response);
+      if (response != null) {
+        _profile = UserProfile.fromJson(response);
+        if (kDebugMode) {
+          print('✅ Profile loaded: ${_profile?.fullName} (${_profile?.role})');
+        }
+      } else {
+        // Profile doesn't exist - create one for old accounts
+        if (kDebugMode) {
+          print('⚠️ No profile found for user: $userId');
+          print('🔄 Creating profile for existing user...');
+        }
+        
+        final user = SupabaseConfig.client.auth.currentUser;
+        if (user != null) {
+          try {
+            // Create a default profile for this user
+            await SupabaseConfig.client.from('profiles').upsert({
+              'id': userId,
+              'email': user.email ?? 'user@example.com',
+              'full_name': user.userMetadata?['name'] ?? 
+                           user.userMetadata?['full_name'] ?? 
+                           user.email?.split('@')[0] ?? 
+                           'User',
+              'role': 'customer',
+              'is_active': true,
+              'created_at': DateTime.now().toIso8601String(),
+              'updated_at': DateTime.now().toIso8601String(),
+            });
+            
+            if (kDebugMode) {
+              print('✅ Profile created for existing user');
+            }
+            
+            // Reload the profile
+            final newResponse = await SupabaseConfig.client
+                .from('profiles')
+                .select()
+                .eq('id', userId)
+                .maybeSingle();
+            
+            if (newResponse != null) {
+              _profile = UserProfile.fromJson(newResponse);
+            }
+          } catch (createError) {
+            if (kDebugMode) {
+              print('❌ Error creating profile: $createError');
+            }
+            _profile = null;
+          }
+        } else {
+          _profile = null;
+        }
+      }
     } catch (e) {
       _error = 'Failed to load profile: $e';
       if (kDebugMode) {
-        print('Error loading profile: $e');
+        print('❌ Error loading profile: $e');
       }
+      _profile = null;
     } finally {
       _profileLoading = false;
       notifyListeners();
@@ -289,7 +357,7 @@ class AuthProvider with ChangeNotifier {
     if (isAdmin) {
       return const AdminDashboardScreen();
     } else if (isStaff) {
-      return const StaffDashboardScreen();
+      return const EnhancedStaffDashboard();
     } else {
       return const HomeScreen();
     }

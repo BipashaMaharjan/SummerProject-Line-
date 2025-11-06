@@ -152,31 +152,10 @@ class TokenProvider extends ChangeNotifier {
     ];
   }
 
-  // Load user tokens from the database
+  // Load user tokens from the database (calls public method)
   Future<void> _loadUserTokens() async {
-    try {
-      final user = SupabaseConfig.client.auth.currentUser;
-      if (user == null) return;
-
-      final response = await SupabaseConfig.client
-          .from('tokens')
-          .select('''
-            *,
-            user:users(name, phone),
-            service:services(name, type),
-            room:rooms(name, room_number)
-          ''')
-          .eq('user_id', user.id)
-          .order('booked_at', ascending: false);
-
-      _userTokens = (response as List)
-          .map((json) => Token.fromJson(json))
-          .toList();
-      
-      notifyListeners();
-    } catch (error) {
-      _setError('Failed to load user tokens: $error');
-    }
+    // Delegate to the public method with enhanced logging
+    await loadUserTokens();
   }
 
   Future<bool> createToken({
@@ -186,19 +165,35 @@ class TokenProvider extends ChangeNotifier {
     required String roomId,
     required String roomName,
     String? scheduledDate,
+    String? userId, // Add optional userId parameter
   }) async {
+    String? finalUserId; // Declare at method level for access in catch block
+    
     try {
       _setLoading(true);
       _clearError();
 
-      final user = SupabaseConfig.client.auth.currentUser;
-      if (user == null) {
-        _setError('User not authenticated. Please log in again.');
+      // Get user ID - either from parameter or from Supabase
+      finalUserId = userId;
+      
+      if (finalUserId == null) {
+        final user = SupabaseConfig.client.auth.currentUser;
+        finalUserId = user?.id;
+      }
+      
+      debugPrint('🔐 Authentication Check:');
+      debugPrint('   User ID: ${finalUserId ?? "None"}');
+      
+      if (finalUserId == null) {
+        final errorMsg = 'You are not logged in. Please sign up or log in to book a token.';
+        debugPrint('❌ $errorMsg');
+        _setError(errorMsg);
         _setLoading(false);
         return false;
       }
 
-      debugPrint('🔄 Starting token creation for user: ${user.id}');
+      debugPrint('✅ User authenticated with ID: $finalUserId');
+      debugPrint('🔄 Starting token creation for user: $finalUserId');
       debugPrint('📋 Service ID: $serviceId');
       debugPrint('🏢 Room ID: $roomId');
 
@@ -217,8 +212,8 @@ class TokenProvider extends ChangeNotifier {
         return false;
       }
 
-      if (!_isValidUuid(user.id)) {
-        debugPrint('❌ Invalid user ID format: ${user.id}');
+      if (!_isValidUuid(finalUserId)) {
+        debugPrint('❌ Invalid user ID format: $finalUserId');
         _setError('Invalid user ID format. Please log out and log in again.');
         _setLoading(false);
         return false;
@@ -266,7 +261,7 @@ class TokenProvider extends ChangeNotifier {
 
       // Create token with correct column names and real IDs
       final tokenData = {
-        'user_id': user.id,
+        'user_id': finalUserId,
         'service_id': realServiceId,
         'status': 'waiting',
         'current_sequence': 1,
@@ -283,13 +278,39 @@ class TokenProvider extends ChangeNotifier {
       debugPrint('📝 Final token data: $tokenData');
 
       // Insert the token
-      final tokenResponse = await SupabaseConfig.client
-          .from('tokens')
-          .insert(tokenData)
-          .select()
-          .single();
-
-      debugPrint('✅ Token created successfully: ${tokenResponse['id']}');
+      dynamic tokenResponse;
+      try {
+        tokenResponse = await SupabaseConfig.client
+            .from('tokens')
+            .insert(tokenData)
+            .select()
+            .single();
+        debugPrint('✅ Token created successfully: ${tokenResponse['id']}');
+      } catch (insertError) {
+        // Check if error is from staff_notifications trigger
+        final errorStr = insertError.toString().toLowerCase();
+        if (errorStr.contains('staff_notifications') && errorStr.contains('foreign key')) {
+          debugPrint('⚠️ Trigger error (staff_notifications) - checking if token was created anyway...');
+          
+          // Token might have been created despite trigger error - check by token_number
+          final checkToken = await SupabaseConfig.client
+              .from('tokens')
+              .select()
+              .eq('token_number', tokenNumber)
+              .eq('user_id', finalUserId)
+              .maybeSingle();
+          
+          if (checkToken != null) {
+            debugPrint('✅ Token was created successfully despite trigger error');
+            tokenResponse = checkToken;
+          } else {
+            debugPrint('❌ Token was not created, rethrowing error');
+            rethrow;
+          }
+        } else {
+          rethrow;
+        }
+      }
 
       // Try to create token history (optional)
       try {
@@ -299,7 +320,7 @@ class TokenProvider extends ChangeNotifier {
               'token_id': tokenResponse['id'],
               'action': 'created',
               'notes': 'Token created for $serviceName',
-              'performed_by': user.id,
+              'performed_by': finalUserId,
             });
         debugPrint('✅ Token history created');
       } catch (historyError) {
@@ -316,15 +337,53 @@ class TokenProvider extends ChangeNotifier {
     } catch (error) {
       debugPrint('❌ Error in createToken: $error');
 
+      final errorString = error.toString().toLowerCase();
+
+      // SPECIAL CASE: If it's the staff_notifications trigger error, 
+      // wait a moment and check if token was created anyway
+      if (errorString.contains('staff_notifications') && errorString.contains('foreign key')) {
+        debugPrint('⚠️ Staff notifications trigger error detected - waiting and checking token...');
+        
+        // Wait 2 seconds for database to settle
+        await Future.delayed(const Duration(seconds: 2));
+        
+        // Check if token was created by looking for recent tokens
+        try {
+          final recentTokens = await SupabaseConfig.client
+              .from('tokens')
+              .select()
+              .eq('user_id', finalUserId!)
+              .order('booked_at', ascending: false)
+              .limit(1)
+              .maybeSingle();
+          
+          if (recentTokens != null) {
+            final tokenTime = DateTime.parse(recentTokens['booked_at']);
+            final now = DateTime.now();
+            final diff = now.difference(tokenTime).inSeconds;
+            
+            // If token was created in last 10 seconds, consider it successful
+            if (diff < 10) {
+              debugPrint('✅ Token was created successfully despite trigger error!');
+              await _loadUserTokens();
+              _setLoading(false);
+              return true;
+            }
+          }
+        } catch (checkError) {
+          debugPrint('⚠️ Could not verify token creation: $checkError');
+        }
+      }
+
       // Provide user-friendly error messages
       String errorMessage = 'Failed to create token. ';
-
-      final errorString = error.toString().toLowerCase();
 
       if (errorString.contains('invalid input syntax for type uuid')) {
         errorMessage += 'Invalid ID format detected. Please refresh the page and try again.';
       } else if (errorString.contains('violates foreign key constraint')) {
-        if (errorString.contains('tokens_service_id_fkey')) {
+        if (errorString.contains('staff_notifications')) {
+          errorMessage += 'Database trigger error. Please contact support or try again.';
+        } else if (errorString.contains('tokens_service_id_fkey')) {
           errorMessage += 'Service not found. Please refresh and try again.';
         } else if (errorString.contains('tokens_current_room_id_fkey')) {
           errorMessage += 'Room not found. Please refresh and try again.';
@@ -485,11 +544,18 @@ class TokenProvider extends ChangeNotifier {
       _setLoading(true);
       _clearError();
 
+      final session = SupabaseConfig.client.auth.currentSession;
       final user = SupabaseConfig.client.auth.currentUser;
-      if (user == null) {
-        _setError('User not authenticated');
+      
+      if (user == null || session == null) {
+        debugPrint('⚠️ Cannot load tokens: User not authenticated');
+        _userTokens = [];
+        _setLoading(false);
         return;
       }
+
+      debugPrint('📥 Loading tokens for user: ${user.id}');
+      debugPrint('📧 User email: ${user.email}');
 
       final response = await SupabaseConfig.client
           .from('tokens')
@@ -501,7 +567,18 @@ class TokenProvider extends ChangeNotifier {
           .eq('user_id', user.id)
           .order('booked_at', ascending: false);
       
-      _userTokens = (response as List).map((json) {
+      debugPrint('📊 Raw response count: ${(response as List).length}');
+      
+      // Debug: Print first few tokens to verify filtering
+      if ((response as List).isNotEmpty) {
+        for (var i = 0; i < (response.length > 3 ? 3 : response.length); i++) {
+          final token = response[i];
+          debugPrint('  Token ${i + 1}: ${token['token_number']} - user_id: ${token['user_id']}');
+        }
+      }
+      
+      // CRITICAL: Double-check filtering on client side as safety measure
+      final allTokens = (response as List).map((json) {
         // Map the nested service and room data to the token
         final serviceData = json['services'] ?? {};
         final roomData = json['rooms'] ?? {};
@@ -515,30 +592,60 @@ class TokenProvider extends ChangeNotifier {
         });
       }).toList();
       
+      // SAFETY FILTER: Only keep tokens that belong to current user
+      _userTokens = allTokens.where((token) => token.userId == user.id).toList();
+      
+      if (allTokens.length != _userTokens.length) {
+        debugPrint('⚠️ WARNING: Filtered out ${allTokens.length - _userTokens.length} tokens that did not belong to user!');
+        debugPrint('⚠️ This indicates RLS policy is not working correctly!');
+      }
+      
+      debugPrint('✅ Loaded ${_userTokens.length} user tokens (filtered by user_id)');
       notifyListeners();
     } catch (error) {
+      debugPrint('❌ Error loading tokens: $error');
       _setError('Failed to load user tokens: $error');
     } finally {
       _setLoading(false);
     }
   }
 
-  Future<List<Token>> getTodaysQueue() async {
+  Future<List<Token>> getTodaysQueue({String? filterByRoomId}) async {
     try {
       // Get today's date at 00:00:00
       final now = DateTime.now();
       final todayStart = DateTime(now.year, now.month, now.day);
 
       debugPrint('TokenProvider: Loading tokens from: ${todayStart.toIso8601String()}');
+      if (filterByRoomId != null) {
+        debugPrint('TokenProvider: Filtering by room: $filterByRoomId');
+      } else {
+        debugPrint('TokenProvider: NO ROOM FILTER - Loading ALL tokens');
+      }
 
-      final response = await SupabaseConfig.client
+      var query = SupabaseConfig.client
           .from('tokens')
-          .select('*')
+          .select('*');
           // .gte('booked_at', todayStart.toIso8601String()) // Temporarily disabled for testing
-          .order('booked_at', ascending: true);
+      
+      // Apply room filter for staff members
+      if (filterByRoomId != null) {
+        query = query.eq('current_room_id', filterByRoomId);
+      }
+      
+      final response = await query.order('booked_at', ascending: true);
 
       debugPrint('TokenProvider: Raw tokens response: $response');
       debugPrint('TokenProvider: Tokens count: ${(response as List).length}');
+      
+      // Debug: Show status breakdown
+      final tokensList = response as List;
+      final statusCounts = <String, int>{};
+      for (var token in tokensList) {
+        final status = token['status'] as String;
+        statusCounts[status] = (statusCounts[status] ?? 0) + 1;
+      }
+      debugPrint('TokenProvider: Status breakdown: $statusCounts');
 
       // Create a map to track positions for each service and status
       final servicePositions = <String, int>{};
