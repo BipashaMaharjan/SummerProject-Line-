@@ -1,0 +1,69 @@
+╔════════════════════════════════════════════════════════════════╗
+║  ROOM ASSIGNMENT FOR STAFF - QUICK START                       ║
+╚════════════════════════════════════════════════════════════════╝
+
+✅ WHAT'S NEW:
+   - Staff assigned to rooms during creation
+   - Room assignment is MANDATORY
+   - Staff can only see tokens from their assigned room
+   - Admin can change room assignment anytime
+   - Staff without room = No tokens visible
+
+📋 IMPLEMENTATION (3 STEPS):
+
+   STEP 1: Execute SQL in Supabase
+   ──────────────────────────────
+   1. Go to Supabase Dashboard → SQL Editor
+   2. Open: z/ADD_ROOM_ASSIGNMENT_TO_STAFF.sql
+   3. Copy ALL contents
+   4. Paste into SQL Editor
+   5. Click RUN
+   6. Wait for "Success"
+
+   STEP 2: Hot Restart Flutter App
+   ───────────────────────────────
+   Ctrl+Shift+R (or Cmd+Shift+R on Mac)
+
+   STEP 3: Test the Feature
+   ────────────────────────
+   1. Go to Admin Dashboard
+   2. Click "Manage Staff"
+   3. Click + button to create new staff
+   4. Fill in: Name, Email, Password
+   5. SELECT ROOM (new dropdown - mandatory!)
+   6. Click "Create Staff Account"
+   7. ✅ Staff created with room assignment
+
+🎯 FEATURES:
+
+   CREATE STAFF:
+   ✓ Room dropdown is mandatory
+   ✓ Staff assigned to room immediately
+   ✓ Can't create without selecting room
+
+   MANAGE STAFF:
+   ✓ See assigned room for each staff
+   ✓ Blue = Room assigned
+   ✓ Orange = Not assigned
+   ✓ Click edit icon to change room
+   ✓ Change room anytime
+
+   STAFF DASHBOARD:
+   ✓ Staff sees only their room's tokens
+   ✓ Can't see other rooms
+   ✓ No room = No tokens visible
+
+🔒 SECURITY:
+   ✓ RLS policy enforces room restriction
+   ✓ Staff can't access other rooms' tokens
+   ✓ Admin can override anytime
+
+📁 FILES MODIFIED:
+   - lib/screens/admin/add_staff_screen.dart
+   - lib/screens/admin/staff_management_screen.dart
+   - lib/services/staff_service.dart
+   - z/ADD_ROOM_ASSIGNMENT_TO_STAFF.sql
+
+⏱️  TIME NEEDED: 5 minutes
+
+✅ STATUS: COMPLETE - Ready to deploy

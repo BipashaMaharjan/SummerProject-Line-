@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
@@ -26,6 +27,92 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
+  StreamSubscription<NotificationItem>? _popupSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _setupPopupListener();
+  }
+
+  void _setupPopupListener() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final notificationProvider = Provider.of<NotificationProvider>(context, listen: false);
+      _popupSubscription = notificationProvider.onNewNotification.listen((notification) {
+        if (mounted) {
+          _showNotificationPopup(notification);
+        }
+      });
+    });
+  }
+
+  void _showNotificationPopup(NotificationItem notification) {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              _getNotificationIcon(notification.type),
+              color: Colors.white,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    notification.title,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    notification.body,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        action: SnackBarAction(
+          label: 'VIEW',
+          textColor: Colors.white,
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => const NotificationsScreen(),
+              ),
+            );
+          },
+        ),
+        duration: const Duration(seconds: 4),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        backgroundColor: Colors.blue.shade800,
+      ),
+    );
+  }
+
+  IconData _getNotificationIcon(NotificationType type) {
+    switch (type) {
+      case NotificationType.statusUpdate:
+        return Icons.update;
+      case NotificationType.queueAlert:
+        return Icons.access_time;
+      case NotificationType.completed:
+        return Icons.check_circle;
+      case NotificationType.cancelled:
+        return Icons.cancel;
+    }
+  }
+
+  @override
+  void dispose() {
+    _popupSubscription?.cancel();
+    super.dispose();
+  }
 
   late final List<Widget> _screens = [
     const DashboardTab(),
@@ -152,7 +239,23 @@ class _DashboardTabState extends State<DashboardTab> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadActiveTokens();
       _setupRealtimeUpdates();
+      _initializeNotifications();
     });
+  }
+
+  void _initializeNotifications() async {
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final notificationProvider = Provider.of<NotificationProvider>(context, listen: false);
+      
+      final userId = authProvider.user?.id;
+      if (userId != null) {
+        await notificationProvider.initialize(userId);
+        debugPrint('DashboardTab: Notifications initialized for user $userId');
+      }
+    } catch (e) {
+      debugPrint('DashboardTab: Error initializing notifications: $e');
+    }
   }
 
   void _setupRealtimeUpdates() {

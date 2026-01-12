@@ -15,6 +15,43 @@ class _AddStaffScreenState extends State<AddStaffScreen> {
   final _passwordController = TextEditingController();
   final _nameController = TextEditingController();
   bool _isLoading = false;
+  bool _isLoadingRooms = true;
+  List<Map<String, dynamic>> _rooms = [];
+  String? _selectedRoomId;
+  String? _roomError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRooms();
+  }
+
+  Future<void> _loadRooms() async {
+    try {
+      final response = await SupabaseConfig.client
+          .from('rooms')
+          .select('id, name')
+          .order('name', ascending: true);
+
+      if (mounted) {
+        setState(() {
+          _rooms = List<Map<String, dynamic>>.from(response);
+          _isLoadingRooms = false;
+          if (_rooms.isNotEmpty) {
+            _selectedRoomId = _rooms[0]['id'];
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error loading rooms: $e');
+      if (mounted) {
+        setState(() {
+          _roomError = 'Failed to load rooms: $e';
+          _isLoadingRooms = false;
+        });
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -26,6 +63,16 @@ class _AddStaffScreenState extends State<AddStaffScreen> {
 
   Future<void> _createStaffAccount() async {
     if (!_formKey.currentState!.validate()) return;
+    
+    if (_selectedRoomId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select a room for the staff member'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
     setState(() => _isLoading = true);
 
@@ -65,17 +112,26 @@ class _AddStaffScreenState extends State<AddStaffScreen> {
         
         if (profileCheck != null) {
           debugPrint('✅ Profile exists: ${profileCheck['full_name']}');
+          // Update with room assignment if not already set
+          if (profileCheck['assigned_room_id'] == null) {
+            await SupabaseConfig.client
+                .from('profiles')
+                .update({'assigned_room_id': _selectedRoomId})
+                .eq('id', userId);
+            debugPrint('✅ Room assigned: $_selectedRoomId');
+          }
         } else {
           debugPrint('⚠️ Profile not found, creating...');
-          // Create profile manually
+          // Create profile manually with room assignment
           await SupabaseConfig.client.from('profiles').insert({
             'id': userId,
             'email': _emailController.text.trim(),
             'full_name': _nameController.text.trim(),
             'role': 'staff',
             'is_active': true,
+            'assigned_room_id': _selectedRoomId,
           });
-          debugPrint('✅ Profile created manually');
+          debugPrint('✅ Profile created with room: $_selectedRoomId');
         }
       } catch (e) {
         debugPrint('❌ Profile error: $e');
@@ -195,6 +251,45 @@ class _AddStaffScreenState extends State<AddStaffScreen> {
                   return null;
                 },
               ),
+              const SizedBox(height: 16),
+              // Room Selection Dropdown
+              if (_isLoadingRooms)
+                const Center(child: CircularProgressIndicator())
+              else if (_roomError != null)
+                Text(
+                  _roomError!,
+                  style: const TextStyle(color: Colors.red),
+                )
+              else if (_rooms.isEmpty)
+                const Text(
+                  'No rooms available. Please create rooms first.',
+                  style: TextStyle(color: Colors.red),
+                )
+              else
+                DropdownButtonFormField<String>(
+                  value: _selectedRoomId,
+                  decoration: const InputDecoration(
+                    labelText: 'Assign Room',
+                    hintText: 'Select a room for this staff member',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.meeting_room),
+                  ),
+                  items: _rooms.map((room) {
+                    return DropdownMenuItem<String>(
+                      value: room['id'],
+                      child: Text(room['name'] ?? 'Unknown Room'),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setState(() => _selectedRoomId = value);
+                  },
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please select a room';
+                    }
+                    return null;
+                  },
+                ),
               const SizedBox(height: 24),
               ElevatedButton(
                 onPressed: _isLoading ? null : _createStaffAccount,

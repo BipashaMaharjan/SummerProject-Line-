@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../providers/token_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/token.dart';
+import '../../models/service.dart';
 import './token_details_screen.dart';
 import './staff_statistics_screen.dart';
 
@@ -75,9 +76,34 @@ class _EnhancedStaffDashboardState extends State<EnhancedStaffDashboard>
       ).toList();
     }
     
-    // Service filter
-    if (_selectedService != null) {
-      filtered = filtered.where((t) => t.serviceName == _selectedService).toList();
+    // Service filter - use serviceId to find matching service name
+    if (_selectedService != null && _selectedService!.isNotEmpty) {
+      final selectedLower = _selectedService!.toLowerCase().trim();
+      
+      // Get the TokenProvider to access services list
+      final tp = context.read<TokenProvider>();
+      
+      filtered = filtered.where((token) {
+        // Look up service name from serviceId
+        Service? service;
+        try {
+          service = tp.services.firstWhere((s) => s.id == token.serviceId);
+        } catch (e) {
+          service = null;
+        }
+        final serviceName = service?.name ?? token.serviceName ?? '';
+        final serviceNameLower = serviceName.toLowerCase().trim();
+        
+        return serviceNameLower == selectedLower || serviceNameLower.contains(selectedLower);
+      }).toList();
+      
+      // Debug: show filtering results
+      debugPrint('🔍 Filtering by service: $_selectedService');
+      debugPrint('   Tokens before filter: ${tokens.length}');
+      debugPrint('   Tokens after filter: ${filtered.length}');
+      for (var token in filtered.take(3)) {
+        debugPrint('   - Token: ${token.displayToken}, Service: ${token.serviceName}');
+      }
     }
     
     return filtered;
@@ -88,13 +114,41 @@ class _EnhancedStaffDashboardState extends State<EnhancedStaffDashboard>
     final tp = context.watch<TokenProvider>();
     final tokens = tp.allTokens;
 
+    // Debug: show all token details
+    debugPrint('========== STAFF DASHBOARD DEBUG ==========');
+    debugPrint('📊 Total tokens loaded: ${tokens.length}');
+    debugPrint('📊 TokenProvider services: ${tp.services.length}');
+    for (var service in tp.services) {
+      debugPrint('   - Service: ${service.name} (ID: ${service.id}, Type: ${service.type})');
+    }
+    
+    debugPrint('📋 Token details:');
+    for (var token in tokens.take(5)) {
+      debugPrint('   - Token: ${token.displayToken}');
+      debugPrint('     serviceName: ${token.serviceName}');
+      debugPrint('     serviceId: ${token.serviceId}');
+      debugPrint('     status: ${token.status}');
+    }
+    if (tokens.length > 5) {
+      debugPrint('   ... and ${tokens.length - 5} more tokens');
+    }
+
     final waiting = _filterTokens(tokens.where((t) => t.status == TokenStatus.waiting).toList());
     final processing = _filterTokens(tokens.where((t) => t.status == TokenStatus.processing).toList());
     final hold = _filterTokens(tokens.where((t) => t.status == TokenStatus.hold).toList());
     final completed = _filterTokens(tokens.where((t) => t.status == TokenStatus.completed).toList());
 
-    // Get unique services for filter
-    final services = tokens.map((t) => t.serviceName).where((s) => s != null).toSet().toList();
+    // Get unique services - use TokenProvider services first, then fallback to token service names
+    List<String?> services = tp.services.map((s) => s.name).toList();
+    if (services.isEmpty) {
+      // Fallback: get from tokens if no services available
+      services = tokens.map((t) => t.serviceName).where((s) => s != null).toSet().toList();
+    }
+    
+    // Debug logging
+    debugPrint('🔍 Staff Dashboard - Available services for filter: $services');
+    debugPrint('🔍 Current selected service: $_selectedService');
+    debugPrint('=========================================');
 
     return Scaffold(
       appBar: AppBar(
@@ -247,6 +301,35 @@ class _EnhancedStaffDashboardState extends State<EnhancedStaffDashboard>
     );
   }
 
+  Future<void> _startProcessing(BuildContext context, Token token) async {
+    if (token.currentRoomId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Token has no room assigned')),
+      );
+      return;
+    }
+    
+    try {
+      final success = await context.read<TokenProvider>().startOperation(
+        token.id,
+        token.currentRoomId!,
+      );
+      
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('✅ Started processing ${token.displayToken}')),
+        );
+        _refresh();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('❌ Failed to start processing')),
+        );
+      }
+    } catch (e) {
+      debugPrint('Start processing error: $e');
+    }
+  }
+
   Future<void> _callNext(Token token) async {
     // Show dialog with token number
     final confirmed = await showDialog<bool>(
@@ -308,13 +391,8 @@ class _EnhancedStaffDashboardState extends State<EnhancedStaffDashboard>
     );
 
     if (confirmed == true) {
-      // Navigate to token details
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => TokenDetailsScreen(token: token),
-        ),
-      );
+      // Start processing the token
+      await _startProcessing(context, token);
     }
   }
 }
@@ -565,7 +643,14 @@ class _ActionButtons extends StatelessWidget {
       _showSnackBar(context, '✅ Started processing ${token.displayToken}');
       onRefresh();
     } else {
-      _showSnackBar(context, '❌ Failed to start processing');
+      // Get the error message from TokenProvider
+      final errorMsg = context.read<TokenProvider>().errorMessage;
+      _showSnackBar(
+        context, 
+        errorMsg != null 
+          ? '❌ $errorMsg' 
+          : '❌ Failed to start processing'
+      );
     }
   }
 

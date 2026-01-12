@@ -29,7 +29,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     try {
       final response = await SupabaseConfig.client
           .from('profiles')
-          .select()
+          .select('*, rooms(id, name)')
           .like('email', '%@work.com')
           .order('created_at', ascending: false);
 
@@ -77,6 +77,99 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
         );
       }
     }
+  }
+
+  Future<void> _showEditDialog(Map<String, dynamic> staff) async {
+    List<Map<String, dynamic>> rooms = [];
+    String? selectedRoomId = staff['assigned_room_id'];
+
+    // Load rooms
+    try {
+      final response = await SupabaseConfig.client
+          .from('rooms')
+          .select('id, name')
+          .order('name', ascending: true);
+      rooms = List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('Error loading rooms: $e');
+    }
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text('Edit Room Assignment - ${staff['full_name']}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Current Room: ${(staff['rooms'] != null && staff['rooms'] is Map) ? (staff['rooms']['name'] ?? 'Not Assigned') : 'Not Assigned'}',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: selectedRoomId,
+                decoration: const InputDecoration(
+                  labelText: 'Select New Room',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.meeting_room),
+                ),
+                items: rooms.map((room) {
+                  return DropdownMenuItem<String>(
+                    value: room['id'],
+                    child: Text(room['name'] ?? 'Unknown Room'),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  setState(() => selectedRoomId = value);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (selectedRoomId != null) {
+                  try {
+                    await SupabaseConfig.client
+                        .from('profiles')
+                        .update({'assigned_room_id': selectedRoomId})
+                        .eq('id', staff['id']);
+
+                    if (mounted) {
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('✅ Room assignment updated successfully'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                      await _loadStaff();
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('❌ Error: $e'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  }
+                }
+              },
+              child: const Text('Update'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -156,6 +249,14 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                                   style: const TextStyle(fontSize: 12),
                                 ),
                                 Text(
+                                  'Room: ${(staff['rooms'] != null && staff['rooms'] is Map) ? (staff['rooms']['name'] ?? 'Not Assigned') : 'Not Assigned'}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: (staff['rooms'] != null && staff['rooms'] is Map) ? Colors.blue : Colors.orange,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Text(
                                   'Status: ${staff['is_active'] == true ? 'Active' : 'Inactive'}',
                                   style: TextStyle(
                                     color: staff['is_active'] == true
@@ -169,6 +270,11 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                IconButton(
+                                  icon: const Icon(Icons.edit),
+                                  onPressed: () => _showEditDialog(staff),
+                                  tooltip: 'Edit Room Assignment',
+                                ),
                                 Switch(
                                   value: staff['is_active'] == true,
                                   onChanged: (value) {

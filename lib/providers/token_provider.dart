@@ -24,7 +24,8 @@ class TokenProvider extends ChangeNotifier {
     _loadServices();
     _loadRooms();
     _loadUserTokens();
-    ensureAllServicesHaveWorkflows();
+    // Run workflow check in background without blocking initialization
+    Future.microtask(() => ensureAllServicesHaveWorkflows());
   }
 
   Future<void> _loadServices() async {
@@ -720,7 +721,10 @@ class TokenProvider extends ChangeNotifier {
 
       await SupabaseConfig.client
           .from('tokens')
-          .update({'status': 'rejected'})
+          .update({
+            'status': 'rejected',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
           .eq('id', tokenId);
 
       // Add history entry
@@ -748,30 +752,43 @@ class TokenProvider extends ChangeNotifier {
       _setLoading(true);
       _clearError();
 
-      // Update token status to 'processing'
+      // Update token status to 'processing' - simple update
       await SupabaseConfig.client
           .from('tokens')
           .update({
             'status': 'processing',
-            'started_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', tokenId);
 
-      // Add history entry
-      await SupabaseConfig.client
-          .from('token_history')
-          .insert({
-            'token_id': tokenId,
-            'room_id': roomId,
-            'status': 'processing',
-            'action': 'started',
-            'notes': 'Operation started by staff',
-          });
+      // Try to add history entry - but don't fail if it errors
+      try {
+        await SupabaseConfig.client
+            .from('token_history')
+            .insert({
+              'token_id': tokenId,
+              'room_id': roomId,
+              'status': 'processing',
+              'action': 'started',
+              'notes': 'Operation started by staff',
+            });
+      } catch (historyError) {
+        debugPrint('Warning: Could not add history entry: $historyError');
+        // Continue anyway - the token update was successful
+      }
 
       await loadUserTokens();
       _setLoading(false);
       return true;
     } catch (error) {
+      debugPrint('❌ ========== START OPERATION FAILED ==========');
+      debugPrint('❌ Error: $error');
+      debugPrint('❌ Error type: ${error.runtimeType}');
+      debugPrint('❌ Token ID: $tokenId');
+      debugPrint('❌ Room ID: $roomId');
+      debugPrint('❌ Stack trace: ${StackTrace.current}');
+      debugPrint('❌ ============================================');
+      
       _setError('Failed to start operation: $error');
       _setLoading(false);
       return false;
@@ -780,13 +797,22 @@ class TokenProvider extends ChangeNotifier {
 
   Future<void> ensureAllServicesHaveWorkflows() async {
     try {
-      // Get all services
+      debugPrint('🔄 Ensuring all services have workflows...');
+      
+      // Get all active services
       final services = await SupabaseConfig.client
           .from('services')
           .select('id, name')
           .eq('is_active', true);
 
-      // Get default reception room
+      debugPrint('📊 Found ${services.length} active services');
+
+      if ((services as List).isEmpty) {
+        debugPrint('⚠️ No active services found');
+        return;
+      }
+
+      // Get default reception room (R001)
       final receptionRoom = await SupabaseConfig.client
           .from('rooms')
           .select()
@@ -794,32 +820,60 @@ class TokenProvider extends ChangeNotifier {
           .maybeSingle();
 
       if (receptionRoom == null) {
-        debugPrint('Default reception room (R001) not found');
+        debugPrint('⚠️ Default reception room (R001) not found - skipping workflow creation');
         return;
       }
 
-      // For each service, check if it has a workflow and create one if not
-      for (final service in services) {
-        final workflowExists = await SupabaseConfig.client
-            .from('service_workflow')
-            .select()
-            .eq('service_id', service['id'])
-            .maybeSingle()
-            .then((value) => value != null)
-            .catchError((_) => false);
+      debugPrint('✅ Found reception room: ${receptionRoom['name']}');
 
-        if (!workflowExists) {
-          await SupabaseConfig.client.from('service_workflow').insert({
-            'service_id': service['id'],
-            'room_id': receptionRoom['id'],
-            'sequence_order': 1,
-            'is_required': true,
-          });
-          debugPrint('Created default workflow for service: ${service['name']}');
+      // For each service, check if it has a workflow
+      for (final service in services) {
+        try {
+          final serviceId = service['id'];
+          final serviceName = service['name'];
+          
+          debugPrint('   Checking workflows for service: $serviceName');
+
+          // Check if workflow already exists for this service
+          final existingWorkflows = await SupabaseConfig.client
+              .from('service_workflow')
+              .select('id')
+              .eq('service_id', serviceId)
+              .catchError((_) => []);
+
+          if ((existingWorkflows as List).isNotEmpty) {
+            debugPrint('   ✅ Workflows already exist for $serviceName - skipping');
+            continue;
+          }
+
+          // Create a single default workflow entry (reception room, step 1)
+          try {
+            await SupabaseConfig.client.from('service_workflow').insert({
+              'service_id': serviceId,
+              'room_id': receptionRoom['id'],
+              'sequence_order': 1,
+              'is_required': true,
+            });
+            
+            debugPrint('   ✅ Created workflow for service: $serviceName');
+          } catch (insertError) {
+            // Silently ignore duplicate errors
+            if (insertError.toString().contains('23505') || 
+                insertError.toString().contains('duplicate')) {
+              debugPrint('   ℹ️ Workflow already exists for $serviceName');
+            } else {
+              debugPrint('   ⚠️ Error creating workflow for $serviceName: $insertError');
+            }
+          }
+        } catch (serviceError) {
+          debugPrint('   ⚠️ Error processing service: $serviceError');
         }
       }
+      
+      debugPrint('✅ Workflow check complete');
     } catch (e) {
-      debugPrint('Error ensuring service workflows: $e');
+      debugPrint('⚠️ Error ensuring service workflows: $e');
+      // Don't let workflow errors block service loading
     }
   }
 

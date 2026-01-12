@@ -911,6 +911,7 @@ class _ActionSection extends StatelessWidget {
 
         await SupabaseConfig.client.from('tokens').update({
           'status': 'rejected',
+          'updated_at': DateTime.now().toIso8601String(),
           'completed_at': DateTime.now().toIso8601String(),
         }).eq('id', token.id);
 
@@ -948,6 +949,7 @@ class _ActionSection extends StatelessWidget {
     try {
       await SupabaseConfig.client.from('tokens').update({
         'status': 'completed',
+        'updated_at': DateTime.now().toIso8601String(),
         'completed_at': DateTime.now().toIso8601String(),
       }).eq('id', token.id);
 

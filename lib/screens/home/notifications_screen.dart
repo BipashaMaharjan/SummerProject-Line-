@@ -12,18 +12,6 @@ class NotificationsScreen extends StatefulWidget {
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
   @override
-  void initState() {
-    super.initState();
-    // Add sample notifications on first load if empty
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final notificationProvider = Provider.of<NotificationProvider>(context, listen: false);
-      if (notificationProvider.notifications.isEmpty) {
-        notificationProvider.addSampleNotifications();
-      }
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Consumer<NotificationProvider>(
       builder: (context, notificationProvider, child) {
@@ -46,15 +34,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 ),
             ],
           ),
-          body: notifications.isEmpty
-              ? _buildEmptyState()
-              : ListView.builder(
-                  itemCount: notifications.length,
-                  itemBuilder: (context, index) {
-                    final notification = notifications[index];
-                    return _buildNotificationItem(notification, notificationProvider);
-                  },
-                ),
+          body: RefreshIndicator(
+            onRefresh: () async {
+              await notificationProvider.refresh();
+            },
+            child: notifications.isEmpty
+                ? _buildEmptyState()
+                : ListView.builder(
+                    itemCount: notifications.length,
+                    itemBuilder: (context, index) {
+                      final notification = notifications[index];
+                      return _buildNotificationItem(notification, notificationProvider);
+                    },
+                  ),
+          ),
         );
       },
     );

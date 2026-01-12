@@ -77,11 +77,13 @@ class StaffService {
     required String userId,
     String? fullName,
     bool? isActive,
+    String? assignedRoomId,
   }) async {
     try {
       final updates = <String, dynamic>{};
       if (fullName != null) updates['full_name'] = fullName;
       if (isActive != null) updates['is_active'] = isActive;
+      if (assignedRoomId != null) updates['assigned_room_id'] = assignedRoomId;
       updates['updated_at'] = DateTime.now().toIso8601String();
 
       if (updates.isNotEmpty) {
