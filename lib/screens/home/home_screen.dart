@@ -568,8 +568,9 @@ class ServicesTab extends StatelessWidget {
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+              child: ListView(
+                shrinkWrap: true,
+                padding: EdgeInsets.zero,
                 children: [
                   Icon(
                     Icons.error_outline,
@@ -618,8 +619,9 @@ class ServicesTab extends StatelessWidget {
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+              child: ListView(
+                shrinkWrap: true,
+                padding: EdgeInsets.zero,
                 children: [
                   Icon(
                     Icons.inbox_outlined,
@@ -847,7 +849,7 @@ class _ProfileTabState extends State<ProfileTab> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         children: [
@@ -948,7 +950,7 @@ class _ProfileTabState extends State<ProfileTab> {
             },
           ),
           
-          const Spacer(),
+          const SizedBox(height: 40),
           
           // Logout Button
           Container(

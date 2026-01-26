@@ -4,6 +4,8 @@ import '../config/supabase_config.dart';
 import '../models/token.dart';
 import '../models/service.dart';
 import '../models/room.dart';
+import '../utils/rate_limiter.dart';
+import '../services/holiday_service.dart';
 
 class TokenProvider extends ChangeNotifier {
   List<Token> _userTokens = [];
@@ -194,6 +196,17 @@ class TokenProvider extends ChangeNotifier {
       }
 
       debugPrint('✅ User authenticated with ID: $finalUserId');
+      
+      // Check rate limit for token creation
+      final isAllowed = await RateLimiter.isAllowed('token_creation', identifier: finalUserId);
+      if (!isAllowed) {
+        final message = await RateLimiter.getRateLimitMessage('token_creation', identifier: finalUserId);
+        debugPrint('❌ Rate limit exceeded for token creation');
+        _setError(message);
+        _setLoading(false);
+        return false;
+      }
+      
       debugPrint('🔄 Starting token creation for user: $finalUserId');
       debugPrint('📋 Service ID: $serviceId');
       debugPrint('🏢 Room ID: $roomId');
@@ -237,23 +250,55 @@ class TokenProvider extends ChangeNotifier {
         _setLoading(false);
         return false;
       }
+
+      // Check for holidays even if scheduled date is null (for same day walk-ins)
+      final DateTime bookingTargetDate = scheduledDate != null 
+          ? DateTime.parse(scheduledDate) 
+          : DateTime.now();
+      
+      final holidayService = HolidayService();
+      final isSelectable = await holidayService.isDateSelectableForAppointment(bookingTargetDate);
+      
+      if (!isSelectable) {
+        final errorMsg = scheduledDate != null 
+            ? 'The selected date is a holiday or weekend. Please choose another date.'
+            : 'Today is a public holiday or weekend. Token booking is currently closed.';
+        debugPrint('❌ $errorMsg');
+        _setError(errorMsg);
+        _setLoading(false);
+        return false;
+      }
+
+      debugPrint('✅ Holiday validation passed');
       debugPrint('✅ Service and room validation passed');
 
       // Generate token number using database function
       String? tokenNumber;
       try {
-        debugPrint('🔄 Generating token number using database function...');
+        debugPrint('🔄 Generating token number using atomic database function...');
+        
+        // Determine service type based on service name
+        final serviceType = serviceName.toLowerCase().contains('renewal') 
+            ? 'renewal' 
+            : 'new_registration';
+        
         final tokenResponse = await SupabaseConfig.client
-            .rpc('generate_token_number', params: {'service_id_param': realServiceId});
+            .rpc('generate_token_number_atomic', params: {
+              'p_service_id': realServiceId,
+              'p_service_type': serviceType,
+              'p_date': (scheduledDate != null) 
+                  ? scheduledDate.split('T')[0] 
+                  : DateTime.now().toIso8601String().split('T')[0],
+            });
 
         if (tokenResponse != null) {
           tokenNumber = tokenResponse.toString();
-          debugPrint('✅ Generated token number: $tokenNumber');
+          debugPrint('✅ Generated token number: $tokenNumber (type: $serviceType)');
         } else {
           throw Exception('Token number generation returned null');
         }
       } catch (e) {
-        debugPrint('⚠️ Database function failed, using fallback: $e');
+        debugPrint('⚠️ Atomic function failed, using fallback: $e');
         // Fallback token number generation
         final now = DateTime.now();
         tokenNumber = 'T${now.millisecondsSinceEpoch.toString().substring(8)}';
@@ -555,20 +600,40 @@ class TokenProvider extends ChangeNotifier {
         return;
       }
 
-      debugPrint('📥 Loading tokens for user: ${user.id}');
-      debugPrint('📧 User email: ${user.email}');
-
-      final response = await SupabaseConfig.client
-          .from('tokens')
-          .select('''
-            *,
-            services:service_id(*),
-            rooms:current_room_id(*)
-          ''')
-          .eq('user_id', user.id)
-          .order('booked_at', ascending: false);
+      // Use try-catch to handle PostgREST relationship errors gracefully
+      dynamic response;
+      try {
+        response = await SupabaseConfig.client
+            .from('tokens')
+            .select('''
+              *,
+              user_id,
+              service_id,
+              current_room_id,
+              profiles(full_name),
+              services:service_id(name, type),
+              rooms:current_room_id(name, room_number)
+            ''')
+            .eq('user_id', user.id)
+            .order('booked_at', ascending: false);
+      } catch (pError) {
+        if (pError.toString().contains('PGRST200')) {
+          debugPrint('⚠️ Relationship profiles not found, falling back to simple load');
+          response = await SupabaseConfig.client
+              .from('tokens')
+              .select()
+              .eq('user_id', user.id)
+              .order('booked_at', ascending: false);
+        } else {
+          rethrow;
+        }
+      }
       
-      debugPrint('📊 Raw response count: ${(response as List).length}');
+      final responseList = response as List;
+      debugPrint('TokenProvider: Found ${responseList.length} raw user tokens from DB');
+      if (responseList.isNotEmpty) {
+        debugPrint('TokenProvider: First raw data sample: ${responseList.first}');
+      }
       
       // Debug: Print first few tokens to verify filtering
       if ((response as List).isNotEmpty) {
@@ -579,18 +644,31 @@ class TokenProvider extends ChangeNotifier {
       }
       
       // CRITICAL: Double-check filtering on client side as safety measure
-      final allTokens = (response as List).map((json) {
-        // Map the nested service and room data to the token
-        final serviceData = json['services'] ?? {};
-        final roomData = json['rooms'] ?? {};
-        
-        return Token.fromJson({
-          ...json,
-          'service_name': serviceData['name'],
-          'service_type': serviceData['type'],
-          'current_room_name': roomData['name'],
-          'current_room_number': roomData['room_number'],
-        });
+      final allTokens = responseList.map((json) {
+        try {
+          // Map nested objects - with safety checks
+          final serviceData = json['services'] ?? json['service_detail'] ?? {};
+          final roomData = json['rooms'] ?? json['room_detail'] ?? {};
+          final userData = json['profiles'] ?? json['user_detail'] ?? {};
+          
+          // Ensure we have string IDs (join might return object)
+          final Map<String, dynamic> rawJson = Map.from(json);
+          final String realUserId = json['user_id'] is String ? json['user_id'] : user.id;
+
+          return Token.fromJson({
+            ...rawJson,
+            'user_id': realUserId,
+            'user_name': userData['full_name'] ?? 'User',
+            'service_name': serviceData['name'] ?? 'Service',
+            'service_type': serviceData['type'],
+            'current_room_name': roomData['name'] ?? 'Room',
+            'current_room_number': roomData['room_number'],
+          });
+        } catch (mError) {
+          debugPrint('❌ Token Mapping Error: $mError');
+          debugPrint('   Problematic JSON: $json');
+          rethrow;
+        }
       }).toList();
       
       // SAFETY FILTER: Only keep tokens that belong to current user
@@ -611,71 +689,143 @@ class TokenProvider extends ChangeNotifier {
     }
   }
 
-  Future<List<Token>> getTodaysQueue({String? filterByRoomId}) async {
+  Future<List<Token>> getTodaysQueue({String? filterByRoomId, DateTime? date}) async {
     try {
-      // Get today's date at 00:00:00
-      final now = DateTime.now();
-      final todayStart = DateTime(now.year, now.month, now.day);
+      // Use provided date or default to today
+      final targetDate = date ?? DateTime.now();
+      final dateStart = DateTime(targetDate.year, targetDate.month, targetDate.day);
+      final dateEnd = dateStart.add(const Duration(days: 1));
 
-      debugPrint('TokenProvider: Loading tokens from: ${todayStart.toIso8601String()}');
-      if (filterByRoomId != null) {
-        debugPrint('TokenProvider: Filtering by room: $filterByRoomId');
-      } else {
-        debugPrint('TokenProvider: NO ROOM FILTER - Loading ALL tokens');
+      debugPrint('TokenProvider: Loading tokens for date: ${dateStart.toIso8601String()}');
+      
+      final realRoomId = filterByRoomId != null ? _mapToRealRoomId(filterByRoomId) : null;
+      if (realRoomId != null) {
+        debugPrint('TokenProvider: Filtering by room: $realRoomId (Original: $filterByRoomId)');
       }
 
-      var query = SupabaseConfig.client
-          .from('tokens')
-          .select('*');
-          // .gte('booked_at', todayStart.toIso8601String()) // Temporarily disabled for testing
-      
-      // Apply room filter for staff members
-      if (filterByRoomId != null) {
-        query = query.eq('current_room_id', filterByRoomId);
-      }
-      
-      final response = await query.order('booked_at', ascending: true);
+      dynamic response;
+      try {
+        var queryBuilder = SupabaseConfig.client
+            .from('tokens')
+            .select('''
+              *,
+              user_id,
+              service_id,
+              current_room_id,
+              profiles(full_name),
+              services:service_id(name, type),
+              rooms:current_room_id(name, room_number)
+            ''');
+        
+        // Simplify filter to find tokens belonging to the target date
+        final dateStr = dateStart.toIso8601String().split('T')[0];
+        queryBuilder = queryBuilder.or('booked_at.gte.$dateStr,scheduled_date.eq.$dateStr,arrived_at.gte.$dateStr');
+        
+        // Safety bound to avoid loading too many historical tokens
+        final dayAfter = dateEnd.toIso8601String().split('T')[0];
+        queryBuilder = queryBuilder.lt('booked_at', dayAfter);
 
-      debugPrint('TokenProvider: Raw tokens response: $response');
-      debugPrint('TokenProvider: Tokens count: ${(response as List).length}');
-      
-      // Debug: Show status breakdown
-      final tokensList = response as List;
-      final statusCounts = <String, int>{};
-      for (var token in tokensList) {
-        final status = token['status'] as String;
-        statusCounts[status] = (statusCounts[status] ?? 0) + 1;
+        // Apply room filter
+        if (realRoomId != null) {
+          queryBuilder = queryBuilder.eq('current_room_id', realRoomId);
+        }
+        
+        response = await queryBuilder.order('booked_at', ascending: true);
+      } catch (pError) {
+        if (pError.toString().contains('PGRST200')) {
+          debugPrint('⚠️ Relationship profiles not found (Queue), falling back');
+          var queryBuilder = SupabaseConfig.client.from('tokens').select();
+          
+          final dateStr = dateStart.toIso8601String().split('T')[0];
+          queryBuilder = queryBuilder.or('booked_at.gte.$dateStr,scheduled_date.eq.$dateStr,arrived_at.gte.$dateStr');
+          
+          if (realRoomId != null) {
+            queryBuilder = queryBuilder.eq('current_room_id', realRoomId);
+          }
+          
+          response = await queryBuilder.order('booked_at', ascending: true);
+        } else {
+          rethrow;
+        }
       }
-      debugPrint('TokenProvider: Status breakdown: $statusCounts');
+      final responseList = response as List;
+
+      debugPrint('TokenProvider: Received ${responseList.length} tokens from database');
+      if (responseList.isNotEmpty) {
+        debugPrint('TokenProvider: Sample Token RAW: ${responseList.first}');
+      }
 
       // Create a map to track positions for each service and status
       final servicePositions = <String, int>{};
       
-      final tokens = (response as List).map((json) {
-        debugPrint('TokenProvider: Processing token JSON: $json');
-        
-        // Calculate queue position
-        final serviceId = json['service_id'] as String?;
-        final status = json['status'] as String?;
-        final key = '$serviceId-$status';
-        final queuePosition = (servicePositions[key] = (servicePositions[key] ?? 0) + 1);
-        
-        return Token.fromJson({
-          ...json,
-          'queue_position': queuePosition,
-        });
+      final tokens = responseList.map((json) {
+        try {
+          // Map nested objects
+          final serviceData = json['services'] ?? {};
+          final roomData = json['rooms'] ?? {};
+          final userData = json['profiles'] ?? {};
+          
+          // Ensure IDs are strings
+          final Map<String, dynamic> rawJson = Map.from(json);
+          final String sid = json['service_id'] is String ? json['service_id'] : (json['service_id']?['id']?.toString() ?? '');
+          final String rid = json['current_room_id'] is String ? json['current_room_id'] : (json['current_room_id']?['id']?.toString() ?? '');
+          final String uid = json['user_id'] is String ? json['user_id'] : (json['user_id']?['id']?.toString() ?? '');
+
+          // Calculate queue position logic
+          final status = json['status'] as String?;
+          final key = '$sid-$status';
+          final queuePosition = (servicePositions[key] = (servicePositions[key] ?? 0) + 1);
+          
+          return Token.fromJson({
+            ...rawJson,
+            'user_id': uid,
+            'service_id': sid,
+            'current_room_id': rid,
+            'user_name': userData['full_name'],
+            'service_name': serviceData['name'],
+            'service_type': serviceData['type'],
+            'current_room_name': roomData['name'],
+            'current_room_number': roomData['room_number'],
+            'queue_position': queuePosition,
+          });
+        } catch (mError) {
+          debugPrint('❌ Token Mapping Error (Queue): $mError');
+          debugPrint('   JSON: $json');
+          rethrow;
+        }
       }).toList();
       
-      // Update the all tokens list for staff dashboard
-      _allTokens = tokens;
-      notifyListeners();
+      // ✅ SAFETY FILTER: If filtering by room, double-check on client side
+      if (realRoomId != null) {
+        final filteredTokens = tokens.where((t) => 
+          t.currentRoomId == realRoomId
+        ).toList();
+        
+        debugPrint('TokenProvider: Client-side filter: Before=${tokens.length}, After=${filteredTokens.length}');
+        if (filteredTokens.length != tokens.length) {
+          debugPrint('⚠️ WARNING: Client-side filter removed ${tokens.length - filteredTokens.length} tokens not in room $realRoomId');
+          if (tokens.isNotEmpty) {
+             debugPrint('   Example removed token room: ${tokens.first.currentRoomId}');
+          }
+          debugPrint('⚠️ This indicates RLS policy may not be working correctly!');
+        }
+        
+        // Update the all tokens list for staff dashboard
+        _allTokens = filteredTokens;
+      } else {
+        // No room filter (admin view)
+        _allTokens = tokens;
+      }
       
-      return tokens;
+      notifyListeners();
+      return _allTokens;
     } catch (error) {
+      debugPrint('❌ Error in getTodaysQueue: $error');
       _setError('Failed to load today\'s queue: $error');
       return [];
     }
   }
+
 
   Future<Token?> getTokenById(String tokenId) async {
     try {
@@ -722,7 +872,7 @@ class TokenProvider extends ChangeNotifier {
       await SupabaseConfig.client
           .from('tokens')
           .update({
-            'status': 'rejected',
+            'status': 'cancelled',
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', tokenId);
@@ -732,7 +882,7 @@ class TokenProvider extends ChangeNotifier {
           .from('token_history')
           .insert({
             'token_id': tokenId,
-            'status': 'rejected',
+            'status': 'cancelled',
             'action': 'cancelled',
             'notes': 'Token cancelled by user',
           });
@@ -741,7 +891,42 @@ class TokenProvider extends ChangeNotifier {
       _setLoading(false);
       return true;
     } catch (error) {
+      debugPrint('❌ Error cancelling token: $error');
       _setError('Failed to cancel token: $error');
+      _setLoading(false);
+      return false;
+    }
+  }
+
+  /// Mark token as arrived (user has reached the service center)
+  Future<bool> markTokenArrived(String tokenId) async {
+    try {
+      _setLoading(true);
+      _clearError();
+
+      debugPrint('🎯 Marking token as arrived: $tokenId');
+
+      // Call database function to mark as arrived
+      final response = await SupabaseConfig.client
+          .rpc('mark_token_arrived', params: {'p_token_id': tokenId});
+
+      if (response == true) {
+        debugPrint('✅ Token marked as arrived successfully');
+        
+        // Reload tokens to get updated status
+        await loadUserTokens();
+        
+        _setLoading(false);
+        return true;
+      } else {
+        debugPrint('⚠️ Failed to mark token as arrived (response: $response)');
+        _setError('Could not mark as arrived. Token may not be in waiting status.');
+        _setLoading(false);
+        return false;
+      }
+    } catch (error) {
+      debugPrint('❌ Error marking token as arrived: $error');
+      _setError('Failed to mark as arrived: $error');
       _setLoading(false);
       return false;
     }
@@ -1067,51 +1252,38 @@ class TokenProvider extends ChangeNotifier {
     }
   }
 
-  /// Postpone token (move to end of queue)
+  /// Postpone token (move back by 5 spots)
   Future<bool> postponeToken(String tokenId, {String? reason}) async {
+    return postponeTokenSmart(tokenId, 5);
+  }
+
+  /// Smart Postpone: Move back by specific offset
+  Future<bool> postponeTokenSmart(String tokenId, int offset) async {
     try {
-      debugPrint('⏰ Postponing token: $tokenId');
+      debugPrint('⏰ Smart Postponing token: $tokenId by $offset spots');
+      
+      _setLoading(true);
+      
+      final response = await SupabaseConfig.client.rpc(
+        'postpone_token_smart',
+        params: {
+          'p_token_id': tokenId,
+          'p_offset': offset,
+        },
+      );
 
-      // Get current token details
-      final tokenResponse = await SupabaseConfig.client
-          .from('tokens')
-          .select()
-          .eq('id', tokenId)
-          .single();
-
-      // Update token with lower priority and new timestamp
-      await SupabaseConfig.client
-          .from('tokens')
-          .update({
-            'priority': -1, // Lower priority
-            'booked_at': DateTime.now().toIso8601String(), // Move to end
-            'status': 'waiting', // Reset to waiting
-            'updated_at': DateTime.now().toIso8601String(),
-            'notes': reason ?? 'Postponed by user',
-          })
-          .eq('id', tokenId);
-
-      // Add history entry
-      await SupabaseConfig.client
-          .from('token_history')
-          .insert({
-            'token_id': tokenId,
-            'room_id': tokenResponse['current_room_id'],
-            'status': 'waiting',
-            'action': 'postponed',
-            'notes': reason ?? 'Token postponed',
-          });
-
-      debugPrint('✅ Token postponed successfully');
-
-      // Refresh tokens
-      await loadUserTokens();
-      notifyListeners();
-
-      return true;
+      if (response == true) {
+        debugPrint('✅ Token postponed successfully');
+        await loadUserTokens();
+        _setLoading(false);
+        return true;
+      } else {
+        throw Exception('Postpone RPC returned false');
+      }
     } catch (e) {
-      debugPrint('❌ Error postponing token: $e');
+      debugPrint('❌ Error smart postponing token: $e');
       _setError('Failed to postpone token: $e');
+      _setLoading(false);
       return false;
     }
   }

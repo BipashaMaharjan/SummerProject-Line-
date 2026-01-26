@@ -138,8 +138,8 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
           padding: const EdgeInsets.all(24.0),
           child: Form(
             key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+            child: ListView(
+              shrinkWrap: true,
               children: [
                 const SizedBox(height: 30),
                 
@@ -277,7 +277,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
                         ),
                 ),
                 
-                const Spacer(),
+                const SizedBox(height: 20),
               ],
             ),
           ),

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../screens/home/home_screen.dart';
 import '../../screens/admin/admin_dashboard_screen.dart';
+import '../../utils/rate_limiter.dart';
 import 'signup_screen.dart';
 import 'forgot_password_screen.dart';
 
@@ -30,11 +31,29 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
+    // Check rate limit
+    final isAllowed = await RateLimiter.isAllowed('login', identifier: email);
+    if (!isAllowed) {
+      final message = await RateLimiter.getRateLimitMessage('login', identifier: email);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+      return;
+    }
+
     setState(() => isLoading = true);
 
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       await authProvider.signInWithEmailAndPassword(email, password);
+      
+      // Reset rate limit on successful login
+      await RateLimiter.reset('login', identifier: email);
       
       if (!mounted) return;
       
@@ -57,6 +76,11 @@ class _LoginScreenState extends State<LoginScreen> {
       
       if (e.toString().contains('Invalid login credentials')) {
         errorMessage = 'Invalid email or password';
+        // Show remaining attempts
+        final remaining = await RateLimiter.getRemainingAttempts('login', identifier: email);
+        if (remaining <= 2 && remaining > 0) {
+          errorMessage += '\n$remaining attempt${remaining > 1 ? 's' : ''} remaining';
+        }
       } else if (e.toString().contains('network error')) {
         errorMessage = 'Network error. Please check your connection.';
       } else if (e.toString().contains('Email not confirmed')) {

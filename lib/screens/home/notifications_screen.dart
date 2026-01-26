@@ -55,8 +55,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Widget _buildEmptyState() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.all(24),
         children: [
           Icon(
             Icons.notifications_none,
@@ -102,7 +103,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       },
       child: Container(
         decoration: BoxDecoration(
-          color: notification.isRead ? Colors.white : Colors.blue.shade50,
+          color: notification.isRead 
+              ? Colors.white 
+              : (notification.type == NotificationType.queueAlert 
+                  ? Colors.amber.shade50  // Amber for proximity alerts
+                  : Colors.blue.shade50),
           border: Border(
             bottom: BorderSide(color: Colors.grey.shade200),
           ),
@@ -163,7 +168,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case NotificationType.statusUpdate:
         return Icons.update;
       case NotificationType.queueAlert:
-        return Icons.access_time;
+        return Icons.notifications_active;  // More prominent icon for proximity alerts
       case NotificationType.completed:
         return Icons.check_circle;
       case NotificationType.cancelled:
@@ -176,7 +181,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case NotificationType.statusUpdate:
         return Colors.blue;
       case NotificationType.queueAlert:
-        return Colors.orange;
+        return Colors.amber.shade700;  // Amber for proximity alerts
       case NotificationType.completed:
         return Colors.green;
       case NotificationType.cancelled:

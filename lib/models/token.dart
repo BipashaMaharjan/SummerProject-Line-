@@ -17,6 +17,7 @@ class Token {
   final DateTime? startedAt;
   final DateTime? scheduledDate;
   final DateTime? bookedAt; // Added to match database schema
+  final DateTime? arrivedAt; // Track when user marked as arrived
 
   // Additional fields from joins
   final String? userName;
@@ -43,6 +44,7 @@ class Token {
     this.startedAt,
     this.scheduledDate,
     this.bookedAt,
+    this.arrivedAt,
     this.userName,
     this.userPhone,
     this.serviceName,
@@ -59,7 +61,15 @@ class Token {
       userId: json['user_id'],
       serviceId: json['service_id'],
       status: TokenStatus.values.firstWhere(
-        (e) => e.name == json['status'],
+        (e) {
+          final dbStatus = json['status']?.toString().toLowerCase() ?? '';
+          // Map snake_case to camelCase if needed
+          final enumNameInDb = e.name.replaceAllMapped(
+            RegExp(r'([A-Z])'), 
+            (match) => '_${match.group(1)!.toLowerCase()}'
+          );
+          return e.name == json['status'] || enumNameInDb == dbStatus;
+        },
         orElse: () => TokenStatus.waiting,
       ),
       currentRoomId: json['current_room_id'],
@@ -82,6 +92,9 @@ class Token {
           : json['created_at'] != null
               ? DateTime.parse(json['created_at'])
               : null,
+      arrivedAt: json['arrived_at'] != null
+          ? DateTime.parse(json['arrived_at'])
+          : null,
       userName: json['user_name'],
       userPhone: json['user_phone'],
       serviceName: json['service_name'],
@@ -123,6 +136,8 @@ class Token {
     switch (status) {
       case TokenStatus.waiting:
         return Colors.orange;
+      case TokenStatus.arrived:
+        return Colors.green.shade600;
       case TokenStatus.hold:
         return Colors.red;
       case TokenStatus.processing:
@@ -131,6 +146,8 @@ class Token {
         return Colors.green;
       case TokenStatus.rejected:
         return Colors.red.shade800;
+      case TokenStatus.cancelled:
+        return Colors.grey.shade600;
       case TokenStatus.noShow:
         return Colors.grey;
     }
@@ -141,6 +158,8 @@ class Token {
     switch (status) {
       case TokenStatus.waiting:
         return 'Waiting';
+      case TokenStatus.arrived:
+        return 'Arrived';
       case TokenStatus.hold:
         return 'On Hold';
       case TokenStatus.processing:
@@ -149,6 +168,8 @@ class Token {
         return 'Completed';
       case TokenStatus.rejected:
         return 'Rejected';
+      case TokenStatus.cancelled:
+        return 'Cancelled';
       case TokenStatus.noShow:
         return 'No Show';
     }
@@ -204,10 +225,12 @@ class Token {
 
 enum TokenStatus {
   waiting,
+  arrived,  // Deprecated: User used to mark arrival. Now tokens are active as soon as they are waiting.
   hold,
   processing,
   completed,
   rejected,
+  cancelled,
   noShow,
 }
 
@@ -216,6 +239,8 @@ extension TokenStatusExtension on TokenStatus {
     switch (this) {
       case TokenStatus.waiting:
         return 'Waiting';
+      case TokenStatus.arrived:
+        return 'Arrived';
       case TokenStatus.hold:
         return 'On Hold';
       case TokenStatus.processing:
@@ -224,6 +249,8 @@ extension TokenStatusExtension on TokenStatus {
         return 'Completed';
       case TokenStatus.rejected:
         return 'Rejected';
+      case TokenStatus.cancelled:
+        return 'Cancelled';
       case TokenStatus.noShow:
         return 'No Show';
     }
@@ -233,6 +260,8 @@ extension TokenStatusExtension on TokenStatus {
     switch (this) {
       case TokenStatus.waiting:
         return Colors.orange;
+      case TokenStatus.arrived:
+        return Colors.green.shade600;  // Green for arrived
       case TokenStatus.hold:
         return Colors.red;
       case TokenStatus.processing:
@@ -241,12 +270,15 @@ extension TokenStatusExtension on TokenStatus {
         return Colors.green;
       case TokenStatus.rejected:
         return Colors.red.shade800;
+      case TokenStatus.cancelled:
+        return Colors.grey.shade600;
       case TokenStatus.noShow:
         return Colors.grey;
     }
   }
   
   bool get isActive => this == TokenStatus.waiting || 
+                      this == TokenStatus.arrived ||
                       this == TokenStatus.hold || 
                       this == TokenStatus.processing;
 }

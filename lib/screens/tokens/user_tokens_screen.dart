@@ -58,7 +58,17 @@ class _UserTokensScreenState extends State<UserTokensScreen> with SingleTickerPr
       
       // Sort tokens within each status group
       _tokensByStatus.forEach((status, tokens) {
-        tokens.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        if (status == TokenStatus.completed || status == TokenStatus.cancelled || status == TokenStatus.rejected || status == TokenStatus.noShow) {
+          tokens.sort((a, b) => b.updatedAt.compareTo(a.updatedAt)); // History: Newest first
+        } else {
+          // Active: Priority (desc) then BookedAt (asc)
+          tokens.sort((a, b) {
+            if (a.priority != b.priority) return b.priority.compareTo(a.priority);
+            final aTime = a.bookedAt ?? a.createdAt;
+            final bTime = b.bookedAt ?? b.createdAt;
+            return aTime.compareTo(bTime);
+          });
+        }
       });
       
       setState(() => _isLoading = false);
@@ -102,17 +112,19 @@ class _UserTokensScreenState extends State<UserTokensScreen> with SingleTickerPr
               child: TabBarView(
                 controller: _tabController,
                 children: [
-                  // Active Tab - Show in-progress and waiting tokens
+                  // Active Tab - Show in-progress, arrived, and waiting tokens
                   _buildTokenList([
                     ...?_tokensByStatus[TokenStatus.processing],
+                    ...?_tokensByStatus[TokenStatus.arrived],
                     ...?_tokensByStatus[TokenStatus.waiting],
                   ]),
                   // Upcoming Tab - Show hold tokens
                   _buildTokenList(_tokensByStatus[TokenStatus.hold]),
-                  // History Tab - Show completed, rejected, and no-show tokens
+                  // History Tab - Show completed, rejected, cancelled, and no-show tokens
                   _buildTokenList([
                     ...?_tokensByStatus[TokenStatus.completed],
                     ...?_tokensByStatus[TokenStatus.rejected],
+                    ...?_tokensByStatus[TokenStatus.cancelled],
                     ...?_tokensByStatus[TokenStatus.noShow],
                   ]),
                 ],
@@ -137,8 +149,13 @@ class _UserTokensScreenState extends State<UserTokensScreen> with SingleTickerPr
           padding: const EdgeInsets.only(bottom: 16.0),
           child: Column(
             children: [
-              TokenCard(token: token),
-              if (token.status == TokenStatus.waiting || token.status == TokenStatus.processing)
+              TokenCard(
+                key: ValueKey(token.id), // Tracks card during list updates
+                token: token,
+              ),
+              if (token.status == TokenStatus.waiting || 
+                  token.status == TokenStatus.arrived ||
+                  token.status == TokenStatus.processing)
                 _buildTokenActions(token),
             ],
           ),
@@ -182,34 +199,34 @@ class _UserTokensScreenState extends State<UserTokensScreen> with SingleTickerPr
   }
 
   Future<void> _postponeToken(Token token) async {
-    final reason = await showDialog<String>(
+    final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Postpone Token'),
-        content: const Text('Your token will be moved to the end of the queue. Continue?'),
+        content: const Text('Your token will be moved back by 5 positions in the queue. Continue?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(context, 'User requested postponement'),
+            onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.orange,
               foregroundColor: Colors.white,
             ),
-            child: const Text('Postpone'),
+            child: const Text('Postpone 5 Spots'),
           ),
         ],
       ),
     );
 
-    if (reason != null) {
-      final success = await context.read<TokenProvider>().postponeToken(token.id, reason: reason);
+    if (confirm == true) {
+      final success = await context.read<TokenProvider>().postponeToken(token.id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(success ? 'Token postponed successfully' : 'Failed to postpone token'),
+            content: Text(success ? 'Token moved back 5 spots' : 'Failed to postpone token'),
             backgroundColor: success ? Colors.green : Colors.red,
           ),
         );

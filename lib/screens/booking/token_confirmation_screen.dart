@@ -67,17 +67,11 @@ class _TokenConfirmationScreenState extends State<TokenConfirmationScreen> {
           // Convert Nepali date to English date for validation
           final DateTime englishDate = nepaliDate.toDateTime();
           
-          final DateTime today = DateTime.now();
-          final bool isToday = englishDate.year == today.year && 
-                              englishDate.month == today.month && 
-                              englishDate.day == today.day;
+          // Use the more comprehensive check from HolidayService
+          // 1. Checks for Saturdays (Nepal weekend)
+          // 2. Checks for holidays in database
           
-          // Allow today as exception
-          if (isToday) {
-            return true; // Allow today even if it's Saturday
-          }
-          
-          // Disable Saturday (Nepal's weekend day - Sunday is a working day)
+          // Disable Saturday (Nepal's weekend day)
           if (englishDate.weekday == DateTime.saturday) {
             return false;
           }
@@ -89,11 +83,7 @@ class _TokenConfirmationScreenState extends State<TokenConfirmationScreen> {
             return normalizedHoliday == normalizedDate;
           });
           
-          if (isHoliday) {
-            return false; // Cannot schedule appointments on holidays
-          }
-          
-          return true;
+          return !isHoliday;
         },
       );
       
@@ -129,7 +119,7 @@ class _TokenConfirmationScreenState extends State<TokenConfirmationScreen> {
         backgroundColor: Colors.blue.shade600,
         foregroundColor: Colors.white,
       ),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -288,7 +278,7 @@ class _TokenConfirmationScreenState extends State<TokenConfirmationScreen> {
               ),
             ),
             
-            const Spacer(),
+            const SizedBox(height: 32),
             
             // Book Token Button
             SizedBox(

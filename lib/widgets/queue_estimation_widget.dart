@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../models/token.dart';
 import '../services/queue_estimation_service.dart';
 import '../services/nepali_calendar_service.dart';
+import '../services/queue_status_service.dart';
+import 'queue_status_widget.dart';
 
 /// Widget that displays queue estimation and wait time
 class QueueEstimationWidget extends StatefulWidget {
@@ -20,18 +22,31 @@ class QueueEstimationWidget extends StatefulWidget {
 class _QueueEstimationWidgetState extends State<QueueEstimationWidget> {
   final _queueService = QueueEstimationService();
   final _nepaliCalendar = NepaliCalendarService();
+  final _queueStatusService = QueueStatusService();
   EnhancedQueueInfo? _enhancedInfo;
   bool _isLoading = true;
   Timer? _autoRefreshTimer;
   Timer? _countdownTimer;
   int _remainingMinutes = 0;
   DateTime? _countdownStartTime;
+  bool _isProximityAlert = false; // Track if user is 2 positions away
   
   @override
   void initState() {
     super.initState();
     _loadQueueInfo();
     _startAutoRefresh();
+  }
+
+  @override
+  void didUpdateWidget(QueueEstimationWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Refresh queue info if token details changed (e.g. status, bookedAt)
+    if (widget.token.status != oldWidget.token.status || 
+        widget.token.bookedAt != oldWidget.token.bookedAt ||
+        widget.token.priority != oldWidget.token.priority) {
+      _loadQueueInfo();
+    }
   }
 
   @override
@@ -61,10 +76,16 @@ class _QueueEstimationWidgetState extends State<QueueEstimationWidget> {
   Future<void> _loadQueueInfo() async {
     if (widget.token.status == TokenStatus.waiting) {
       final enhancedInfo = await _queueService.getEnhancedQueueInfo(widget.token);
+      
+      // Check proximity alert (2 positions away)
+      final queueInfo = await _queueStatusService.getQueueInfoForToken(widget.token.id);
+      final isProximity = queueInfo?.shouldAlert ?? false;
+      
       if (mounted) {
         setState(() {
           _enhancedInfo = enhancedInfo;
           _isLoading = false;
+          _isProximityAlert = isProximity;
           
           // Initialize countdown if real-time tracking is active
           if (enhancedInfo.showRealTimeEstimation) {
@@ -204,12 +225,72 @@ class _QueueEstimationWidgetState extends State<QueueEstimationWidget> {
     
     return Card(
       elevation: 2,
-      color: showRealTime ? Colors.blue.shade50 : Colors.orange.shade50,
+      color: _isProximityAlert 
+          ? Colors.amber.shade50  // Yellow highlight for proximity alert
+          : (showRealTime ? Colors.blue.shade50 : Colors.orange.shade50),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Proximity Alert Banner (if 2 positions away) - Only for today
+            if (_isProximityAlert && _enhancedInfo!.isAppointmentToday) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.shade400, width: 2),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.notifications_active, 
+                      color: Colors.amber.shade900, 
+                      size: 24
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Your Turn is Coming Soon!',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.amber.shade900,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'You\'re only 2 positions away. Please be ready!',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.amber.shade800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+            
+            // Only show detailed tracking for today
+            if (_enhancedInfo!.isAppointmentToday) ...[
+              // Currently Serving Display
+              QueueStatusWidget(
+                serviceId: widget.token.serviceId,
+                showLabel: true,
+              ),
+              
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 12),
+            ],
+            
             // Header with status indicator
             Row(
               children: [

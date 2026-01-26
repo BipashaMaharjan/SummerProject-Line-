@@ -19,6 +19,8 @@ class TokenCard extends StatelessWidget {
     switch (status) {
       case TokenStatus.waiting:
         return Colors.orange;
+      case TokenStatus.arrived:
+        return Colors.green.shade600;
       case TokenStatus.hold:
         return Colors.purple;
       case TokenStatus.processing:
@@ -26,6 +28,7 @@ class TokenCard extends StatelessWidget {
       case TokenStatus.completed:
         return Colors.green;
       case TokenStatus.rejected:
+      case TokenStatus.cancelled:
       case TokenStatus.noShow:
         return Colors.red;
     }
@@ -116,6 +119,7 @@ class TokenCard extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2.0),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             '$label: ',
@@ -124,10 +128,12 @@ class TokenCard extends StatelessWidget {
               color: Colors.grey,
             ),
           ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontWeight: FontWeight.w500,
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ],
@@ -211,18 +217,21 @@ class TokenCard extends StatelessWidget {
                     ),
                   ),
                   if (token.serviceName != null)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: isDarkMode ? Colors.grey[800] : Colors.grey[100],
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        token.serviceName!,
-                        style: TextStyle(
-                          color: isDarkMode ? Colors.white70 : Colors.black87,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: isDarkMode ? Colors.grey[800] : Colors.grey[100],
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          token.serviceName!,
+                          style: TextStyle(
+                            color: isDarkMode ? Colors.white70 : Colors.black87,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ),

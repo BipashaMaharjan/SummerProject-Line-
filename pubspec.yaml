@@ -61,6 +61,9 @@ dependencies:
   # Nepali calendar support
   nepali_utils: ^3.0.5
   nepali_date_picker: ^6.0.2
+  
+  # Environment variables for secure configuration
+  flutter_dotenv: ^5.1.0
 
 dev_dependencies:
   flutter_test:
@@ -88,6 +91,7 @@ flutter:
   assets:
     - assets/images/wel.jpeg
     - user_config.json
+    - .env
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
 

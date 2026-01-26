@@ -103,7 +103,12 @@ BEGIN
         v_message := 'Token ' || COALESCE(NEW.token_number, 'UNKNOWN') || ' is on hold. Please wait for further instructions.';
       WHEN 'rejected' THEN
         v_title := 'Token Rejected ❌';
-        v_message := 'Token ' || COALESCE(NEW.token_number, 'UNKNOWN') || ' was rejected. Please contact staff.';
+        -- Check if it was an auto-rejection for no-show
+        IF NEW.notes LIKE '%Auto-rejected%' THEN
+          v_message := 'Your token (' || COALESCE(NEW.token_number, 'N/A') || ') was rejected because you did not arrive on your scheduled date. Please book a new token if you still need service.';
+        ELSE
+          v_message := 'Token ' || COALESCE(NEW.token_number, 'UNKNOWN') || ' was rejected. Please contact staff for details.';
+        END IF;
       WHEN 'no_show' THEN
         v_title := 'Missed Turn ⚠️';
         v_message := 'Token ' || COALESCE(NEW.token_number, 'UNKNOWN') || ' was marked as no-show';

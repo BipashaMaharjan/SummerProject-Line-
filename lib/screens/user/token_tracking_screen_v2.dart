@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/token.dart';
 import '../../widgets/queue_estimation_widget.dart';
+import '../../widgets/position_tracker_widget.dart';
 
 /// Screen to display real-time token tracking with queue estimation
 class TokenTrackingScreenV2 extends StatelessWidget {
@@ -58,7 +59,22 @@ class TokenTrackingScreenV2 extends StatelessWidget {
             
             const SizedBox(height: 16),
             
-            // Queue Estimation Widget (NEW!)
+            
+            const SizedBox(height: 16),
+            
+            const SizedBox(height: 16),
+            
+            // Position Tracker (NEW! - Shows position with animation)
+            if (token.status == TokenStatus.waiting || token.status == TokenStatus.arrived)
+              PositionTrackerWidget(
+                tokenId: token.id,
+                serviceId: token.serviceId,
+              ),
+            
+            if (token.status == TokenStatus.waiting || token.status == TokenStatus.arrived)
+              const SizedBox(height: 16),
+            
+            // Queue Estimation Widget (Shows "Now Serving" + queue info)
             QueueEstimationWidget(token: token),
             
             const SizedBox(height: 16),

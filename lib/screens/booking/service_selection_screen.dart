@@ -47,8 +47,9 @@ class _ServiceSelectionScreenState extends State<ServiceSelectionScreen> {
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(24.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                child: ListView(
+                  shrinkWrap: true,
+                  padding: EdgeInsets.zero,
                   children: [
                     Icon(
                       Icons.error_outline,
@@ -97,9 +98,10 @@ class _ServiceSelectionScreenState extends State<ServiceSelectionScreen> {
           
           // Show loading state
           if (tokenProvider.services.isEmpty && tokenProvider.isLoading) {
-            return const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+            return Center(
+              child: ListView(
+                shrinkWrap: true,
+                padding: EdgeInsets.zero,
                 children: [
                   CircularProgressIndicator(),
                   SizedBox(height: 16),
@@ -120,8 +122,9 @@ class _ServiceSelectionScreenState extends State<ServiceSelectionScreen> {
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(24.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                child: ListView(
+                  shrinkWrap: true,
+                  padding: EdgeInsets.zero,
                   children: [
                     Icon(
                       Icons.inbox_outlined,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../config/supabase_config.dart';
+import '../../utils/rate_limiter.dart';
 import 'otp_verification_screen.dart';
 
 class SignupScreen extends StatefulWidget {
@@ -14,6 +15,21 @@ class _SignupScreenState extends State<SignupScreen> {
   bool isLoading = false;
   
   Future<void> _sendOTP(String email) async {
+    // Check rate limit
+    final isAllowed = await RateLimiter.isAllowed('otp_request', identifier: email);
+    if (!isAllowed) {
+      final message = await RateLimiter.getRateLimitMessage('otp_request', identifier: email);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+      return;
+    }
+
     try {
       // Use signInWithOtp instead of signUp to avoid rate limiting issues
       await SupabaseConfig.client.auth.signInWithOtp(

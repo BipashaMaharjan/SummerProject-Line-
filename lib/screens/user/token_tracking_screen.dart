@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../models/token.dart';
 import '../../widgets/queue_estimation_widget.dart';
 import '../../providers/token_provider.dart';
+import '../../providers/token_provider.dart';
 
 /// Screen to display real-time token tracking with queue estimation
 class TokenTrackingScreen extends StatelessWidget {
@@ -57,6 +58,11 @@ class TokenTrackingScreen extends StatelessWidget {
                 ),
               ),
             ),
+            
+            const SizedBox(height: 16),
+            
+            
+            const SizedBox(height: 16),
             
             const SizedBox(height: 16),
             
@@ -216,6 +222,8 @@ class TokenTrackingScreen extends StatelessWidget {
     switch (token.status) {
       case TokenStatus.waiting:
         return Icons.hourglass_empty;
+      case TokenStatus.arrived:
+        return Icons.check_circle_outline;
       case TokenStatus.hold:
         return Icons.pause_circle_outline;
       case TokenStatus.processing:
@@ -224,6 +232,8 @@ class TokenTrackingScreen extends StatelessWidget {
         return Icons.check_circle_outline;
       case TokenStatus.rejected:
         return Icons.cancel_outlined;
+      case TokenStatus.cancelled:
+        return Icons.cancel;
       case TokenStatus.noShow:
         return Icons.person_off_outlined;
     }
@@ -233,6 +243,8 @@ class TokenTrackingScreen extends StatelessWidget {
     switch (token.status) {
       case TokenStatus.waiting:
         return 'You are in the queue. Please wait for your turn.';
+      case TokenStatus.arrived:
+        return 'You have arrived! You\'re in the active queue.';
       case TokenStatus.hold:
         return 'Your token is on hold. Please wait for further instructions.';
       case TokenStatus.processing:
@@ -244,6 +256,8 @@ class TokenTrackingScreen extends StatelessWidget {
         return 'Service completed successfully';
       case TokenStatus.rejected:
         return 'Token was rejected. Please contact staff.';
+      case TokenStatus.cancelled:
+        return 'Token was cancelled by user.';
       case TokenStatus.noShow:
         return 'Token marked as no-show';
     }

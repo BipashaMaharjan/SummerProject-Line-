@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:major/screens/splash_screen.dart';
 import 'package:major/screens/admin/admin_login_screen.dart';
 import 'package:provider/provider.dart';
@@ -42,6 +43,9 @@ Future<void> main() async {
         'APP_NAME': isAdminMode ? 'Admin - Digital Queue' : 'Digital Queue Management',
       };
     }
+
+    // Initialize dotenv BEFORE Supabase
+    await dotenv.load(fileName: ".env");
 
     // Initialize Supabase
     await SupabaseConfig.initialize();

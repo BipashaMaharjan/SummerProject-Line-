@@ -7,6 +7,13 @@ import '../../models/service.dart';
 import './token_details_screen.dart';
 import './staff_statistics_screen.dart';
 
+// Helper function to format time for arrival status
+String _formatTime(DateTime dateTime) {
+  final hour = dateTime.hour.toString().padLeft(2, '0');
+  final minute = dateTime.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
+}
+
 class EnhancedStaffDashboard extends StatefulWidget {
   const EnhancedStaffDashboard({super.key});
 
@@ -20,11 +27,12 @@ class _EnhancedStaffDashboardState extends State<EnhancedStaffDashboard>
   bool _initialLoaded = false;
   String _searchQuery = '';
   String? _selectedService;
+  DateTime _selectedDate = DateTime.now();
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _refresh());
     _setupRealtimeUpdates();
   }
@@ -46,9 +54,10 @@ class _EnhancedStaffDashboardState extends State<EnhancedStaffDashboard>
     debugPrint('   Staff Role: ${authProvider.profile?.role}');
     debugPrint('   Assigned Room ID: $assignedRoomId');
     
-    // Fetch tokens filtered by assigned room (only for staff with assigned rooms)
+    // Fetch tokens filtered by assigned room and selected date
     await context.read<TokenProvider>().getTodaysQueue(
       filterByRoomId: assignedRoomId,
+      date: _selectedDate,
     );
     
     final tokens = context.read<TokenProvider>().allTokens;
@@ -63,6 +72,44 @@ class _EnhancedStaffDashboardState extends State<EnhancedStaffDashboard>
     _tabController.dispose();
     context.read<TokenProvider>().unsubscribeFromTokenUpdates();
     super.dispose();
+  }
+
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2025),
+      lastDate: DateTime(2030),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: Colors.blue,
+              onPrimary: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null && picked != _selectedDate) {
+      setState(() {
+        _selectedDate = picked;
+        _initialLoaded = false;
+      });
+      _refresh();
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    if (_isToday(date)) return 'Today';
+    return '${date.day}/${date.month}/${date.year}';
+  }
+
+  bool _isToday(DateTime date) {
+    final now = DateTime.now();
+    return date.year == now.year && date.month == now.month && date.day == now.day;
   }
 
   List<Token> _filterTokens(List<Token> tokens) {
@@ -133,10 +180,51 @@ class _EnhancedStaffDashboardState extends State<EnhancedStaffDashboard>
       debugPrint('   ... and ${tokens.length - 5} more tokens');
     }
 
-    final waiting = _filterTokens(tokens.where((t) => t.status == TokenStatus.waiting).toList());
+    // ✅ 3-TAB STRUCTURE FOR BETTER QUEUE MANAGEMENT
+    // Tab 1: QUEUE - Active queue (waiting)
+    // Tab 2: PROCESSING - Currently being served
+    // Tab 3: COMPLETED - Finished tokens
+    
+    final targetDate = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+    
+    // Helper function to check if token matches selected date
+    bool matchesSelectedDate(DateTime? date) {
+      if (date == null) return false;
+      final tokenDay = DateTime(date.year, date.month, date.day);
+      return tokenDay.isAtSameMomentAs(targetDate);
+    }
+    
+    // TAB 1: QUEUE - Active queue (waiting)
+    // Shows: all waiting tokens for today
+    // Purpose: Action tab - who to call next
+    var queueTokens = tokens.where((t) {
+      if (t.status != TokenStatus.waiting && t.status != TokenStatus.arrived) return false;
+      
+      final tokenDate = t.arrivedAt ?? t.scheduledDate ?? t.bookedAt ?? t.createdAt;
+      return matchesSelectedDate(tokenDate);
+    }).toList();
+    
+    // Sort: Scheduled first, then walk-ins, FIFO within each
+    queueTokens.sort((a, b) {
+      final aIsScheduled = a.scheduledDate != null;
+      final bIsScheduled = b.scheduledDate != null;
+      
+      if (aIsScheduled && !bIsScheduled) return -1;
+      if (!aIsScheduled && bIsScheduled) return 1;
+      
+      final aTime = a.bookedAt ?? a.createdAt;
+      final bTime = b.bookedAt ?? b.createdAt;
+      return aTime.compareTo(bTime);
+    });
+    
+    // Apply search/service filters
+    final queue = _filterTokens(queueTokens);
     final processing = _filterTokens(tokens.where((t) => t.status == TokenStatus.processing).toList());
-    final hold = _filterTokens(tokens.where((t) => t.status == TokenStatus.hold).toList());
     final completed = _filterTokens(tokens.where((t) => t.status == TokenStatus.completed).toList());
+
+
+
+
 
     // Get unique services - use TokenProvider services first, then fallback to token service names
     List<String?> services = tp.services.map((s) => s.name).toList();
@@ -152,8 +240,37 @@ class _EnhancedStaffDashboardState extends State<EnhancedStaffDashboard>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Staff Dashboard'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Staff Dashboard'),
+            Text(
+              _formatDate(_selectedDate),
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
+            ),
+          ],
+        ),
         actions: [
+          // Date selection button
+          IconButton(
+            icon: const Icon(Icons.calendar_today),
+            tooltip: 'Select Date',
+            onPressed: () => _selectDate(context),
+          ),
+          // Reset to today (only show if not today)
+          if (!_isToday(_selectedDate))
+            IconButton(
+              icon: const Icon(Icons.today),
+              tooltip: 'Today',
+              onPressed: () {
+                setState(() {
+                  _selectedDate = DateTime.now();
+                  _initialLoaded = false;
+                });
+                _refresh();
+              },
+            ),
           // Statistics button
           IconButton(
             icon: const Icon(Icons.analytics_outlined),
@@ -184,10 +301,10 @@ class _EnhancedStaffDashboardState extends State<EnhancedStaffDashboard>
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
                       _StatCard(
-                        label: 'Waiting',
-                        count: waiting.length,
-                        color: Colors.orange,
-                        icon: Icons.hourglass_empty,
+                        label: 'In Queue',
+                        count: queue.length,
+                        color: Colors.green,
+                        icon: Icons.people,
                       ),
                       _StatCard(
                         label: 'Processing',
@@ -196,15 +313,9 @@ class _EnhancedStaffDashboardState extends State<EnhancedStaffDashboard>
                         icon: Icons.play_circle,
                       ),
                       _StatCard(
-                        label: 'Hold',
-                        count: hold.length,
-                        color: Colors.red,
-                        icon: Icons.pause_circle,
-                      ),
-                      _StatCard(
                         label: 'Completed',
                         count: completed.length,
-                        color: Colors.green,
+                        color: Colors.grey,
                         icon: Icons.check_circle,
                       ),
                     ],
@@ -258,9 +369,8 @@ class _EnhancedStaffDashboardState extends State<EnhancedStaffDashboard>
                   isScrollable: false,
                   labelStyle: const TextStyle(fontSize: 12),
                   tabs: [
-                    Tab(text: 'Wait (${waiting.length})'),
+                    Tab(text: 'Queue (${queue.length})'),
                     Tab(text: 'Process (${processing.length})'),
-                    Tab(text: 'Hold (${hold.length})'),
                     Tab(text: 'Done (${completed.length})'),
                   ],
                 ),
@@ -274,29 +384,28 @@ class _EnhancedStaffDashboardState extends State<EnhancedStaffDashboard>
         child: TabBarView(
           controller: _tabController,
           children: [
-            _TokenList(tokens: waiting, emptyText: 'No waiting tokens', onRefresh: _refresh),
+            _TokenList(tokens: queue, emptyText: 'No tokens in queue', onRefresh: _refresh),
             _TokenList(tokens: processing, emptyText: 'No processing tokens', onRefresh: _refresh),
-            _TokenList(tokens: hold, emptyText: 'No tokens on hold', onRefresh: _refresh),
-            _TokenList(tokens: completed, emptyText: 'No completed tokens', onRefresh: _refresh),
+            _TokenList(tokens: completed, emptyText: 'No completed tokens today', onRefresh: _refresh),
           ],
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: waiting.isNotEmpty 
-            ? () => _callNext(waiting.first)
+        onPressed: queue.isNotEmpty 
+            ? () => _callNext(queue.first)
             : () {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text('No waiting tokens in queue'),
+                    content: Text('No tokens in queue'),
                     duration: Duration(seconds: 2),
                   ),
                 );
               },
-        backgroundColor: waiting.isNotEmpty ? Colors.green : Colors.grey,
+        backgroundColor: queue.isNotEmpty ? Colors.green : Colors.grey,
         icon: Icon(
-          waiting.isNotEmpty ? Icons.phone_forwarded : Icons.phone_disabled,
+          queue.isNotEmpty ? Icons.phone_forwarded : Icons.phone_disabled,
         ),
-        label: Text(waiting.isNotEmpty ? 'Call Next' : 'No Tokens'),
+        label: Text(queue.isNotEmpty ? 'Call Next' : 'No Tokens'),
       ),
     );
   }
@@ -396,6 +505,7 @@ class _EnhancedStaffDashboardState extends State<EnhancedStaffDashboard>
     }
   }
 }
+
 
 class _StatCard extends StatelessWidget {
   final String label;
@@ -556,6 +666,56 @@ class _TokenCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  const SizedBox(width: 4),
+                  // ✅ NEW: Token Type Badge (Scheduled vs Walk-in)
+                  if (token.scheduledDate != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        border: Border.all(color: Colors.blue.shade300),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.calendar_today, size: 10, color: Colors.blue.shade700),
+                          const SizedBox(width: 2),
+                          Text(
+                            'Scheduled',
+                            style: TextStyle(
+                              color: Colors.blue.shade700,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        border: Border.all(color: Colors.orange.shade300),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.directions_walk, size: 10, color: Colors.orange.shade700),
+                          const SizedBox(width: 2),
+                          Text(
+                            'Walk-in',
+                            style: TextStyle(
+                              color: Colors.orange.shade700,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                 ],
               ),
               const Divider(height: 16),
@@ -583,6 +743,7 @@ class _TokenCard extends StatelessWidget {
                   ],
                 ),
               ],
+              // ✅ NEW: Show arrival status for arrived tokens
               const SizedBox(height: 12),
               // Action Buttons
               _ActionButtons(token: token, onRefresh: onRefresh),
@@ -604,6 +765,7 @@ class _ActionButtons extends StatelessWidget {
   Widget build(BuildContext context) {
     switch (token.status) {
       case TokenStatus.waiting:
+      case TokenStatus.arrived:  // ✅ Added: Arrived tokens can also be processed
       case TokenStatus.hold:
         return Row(
           children: [

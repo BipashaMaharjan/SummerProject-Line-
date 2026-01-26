@@ -79,18 +79,18 @@ class _AddStaffScreenState extends State<AddStaffScreen> {
     try {
       debugPrint('🔄 Creating staff account...');
       debugPrint('📧 Email: ${_emailController.text.trim()}');
+      debugPrint('🏢 Room: $_selectedRoomId');
       
-      // Create auth user with minimal data
+      // Create auth user with room data in metadata
       final authResponse = await SupabaseConfig.client.auth.signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
         data: {
           'full_name': _nameController.text.trim(),
           'role': 'staff',
+          'assigned_room_id': _selectedRoomId, // Include in metadata
         },
       );
-
-      debugPrint('📦 Auth response: ${authResponse.user?.id}');
 
       if (authResponse.user == null) {
         throw Exception('Failed to create auth user - no user returned');
@@ -99,44 +99,11 @@ class _AddStaffScreenState extends State<AddStaffScreen> {
       final userId = authResponse.user!.id;
       debugPrint('✅ Auth user created: $userId');
       
-      // Wait for trigger
-      await Future.delayed(const Duration(seconds: 1));
-      
-      // Check if profile exists
-      try {
-        final profileCheck = await SupabaseConfig.client
-            .from('profiles')
-            .select()
-            .eq('id', userId)
-            .maybeSingle();
-        
-        if (profileCheck != null) {
-          debugPrint('✅ Profile exists: ${profileCheck['full_name']}');
-          // Update with room assignment if not already set
-          if (profileCheck['assigned_room_id'] == null) {
-            await SupabaseConfig.client
-                .from('profiles')
-                .update({'assigned_room_id': _selectedRoomId})
-                .eq('id', userId);
-            debugPrint('✅ Room assigned: $_selectedRoomId');
-          }
-        } else {
-          debugPrint('⚠️ Profile not found, creating...');
-          // Create profile manually with room assignment
-          await SupabaseConfig.client.from('profiles').insert({
-            'id': userId,
-            'email': _emailController.text.trim(),
-            'full_name': _nameController.text.trim(),
-            'role': 'staff',
-            'is_active': true,
-            'assigned_room_id': _selectedRoomId,
-          });
-          debugPrint('✅ Profile created with room: $_selectedRoomId');
-        }
-      } catch (e) {
-        debugPrint('❌ Profile error: $e');
-        throw Exception('Failed to create profile: $e');
-      }
+      // ✅ TRIGGER-BASED ARCHITECTURE:
+      // The 'on_auth_user_created' database trigger in master_staff_setup_master.sql
+      // now automatically creates the profile with the correct room ID.
+      // We no longer need to call .from('profiles').upsert() from the app,
+      // which completely eliminates Error 23503 (Race Condition).
 
       // Confirm email immediately for staff accounts
       try {
@@ -149,38 +116,42 @@ class _AddStaffScreenState extends State<AddStaffScreen> {
         debugPrint('   Staff can still login, but may need to verify email');
       }
 
-      if (!mounted) return;
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('✅ Staff account created successfully!\nEmail: ${_emailController.text.trim()}'),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 4),
-        ),
-      );
-      
-      Navigator.pop(context);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Staff account created successfully!\nEmail: ${_emailController.text.trim()}'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        
+        // Use a small delay for the SnackBar to be visible before popping
+        // or just pop immediately, the snackbar will persist.
+        Navigator.of(context).pop(true); // Return true to indicate refresh needed
+      }
       
     } on AuthException catch (e) {
       debugPrint('❌ Auth error: ${e.message}');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Auth Error: ${e.message}'),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 5),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Auth Error: ${e.message}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
     } catch (e) {
       debugPrint('❌ General error: $e');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: $e'),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 5),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -206,6 +177,7 @@ class _AddStaffScreenState extends State<AddStaffScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Full Name',
                   border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.person_outline),
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
@@ -221,6 +193,7 @@ class _AddStaffScreenState extends State<AddStaffScreen> {
                   labelText: 'Email',
                   hintText: 'name@work.com',
                   border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.email_outlined),
                 ),
                 keyboardType: TextInputType.emailAddress,
                 validator: (value) {
@@ -239,6 +212,7 @@ class _AddStaffScreenState extends State<AddStaffScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Password',
                   border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.lock_outline),
                 ),
                 obscureText: true,
                 validator: (value) {
@@ -295,10 +269,22 @@ class _AddStaffScreenState extends State<AddStaffScreen> {
                 onPressed: _isLoading ? null : _createStaffAccount,
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: Theme.of(context).primaryColor,
+                  foregroundColor: Colors.white,
                 ),
                 child: _isLoading
-                    ? const CircularProgressIndicator()
-                    : const Text('Create Staff Account'),
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text(
+                        'Create Staff Account',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
               ),
             ],
           ),

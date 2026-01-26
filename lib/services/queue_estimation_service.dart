@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:intl/intl.dart';
 import '../config/supabase_config.dart';
 import '../models/token.dart';
 import 'office_hours_service.dart';
@@ -25,39 +26,23 @@ class QueueEstimationService {
         return 0; // Not in queue
       }
 
+      // Use RPC for consistent calculation with database
       final response = await SupabaseConfig.client
-          .from('tokens')
-          .select('id')
-          .eq('service_id', token.serviceId)
-          .eq('status', 'waiting')
-          .lt('created_at', token.createdAt.toIso8601String());
+          .rpc('calculate_queue_position', params: {'p_token_id': token.id});
 
-      return (response as List).length + 1;
+      final pos = response as int? ?? 1;
+      debugPrint('QueueEstimationService: Token ${token.tokenNumber} is at position $pos');
+      return pos;
     } catch (e) {
       debugPrint('QueueEstimationService: Error getting queue position: $e');
-      return 0;
+      return 1;
     }
   }
 
   /// Get number of tokens ahead in queue
   Future<int> getTokensAhead(Token token) async {
-    try {
-      if (token.status != TokenStatus.waiting) {
-        return 0;
-      }
-
-      final response = await SupabaseConfig.client
-          .from('tokens')
-          .select('id')
-          .eq('service_id', token.serviceId)
-          .eq('status', 'waiting')
-          .lt('created_at', token.createdAt.toIso8601String());
-
-      return (response as List).length;
-    } catch (e) {
-      debugPrint('QueueEstimationService: Error getting tokens ahead: $e');
-      return 0;
-    }
+    final pos = await getQueuePosition(token);
+    return pos > 0 ? pos - 1 : 0;
   }
 
   /// Get currently processing token for the service
@@ -260,6 +245,7 @@ class QueueEstimationService {
         averageHandlingTimeMinutes: avgHandlingTime,
         estimatedWaitMinutes: estimatedWaitMinutes,
         estimatedWaitTime: formatWaitTime(estimatedWaitMinutes),
+        appointmentDate: token.scheduledDate,
       );
     } catch (e) {
       debugPrint('QueueEstimationService: Error getting queue info: $e');
@@ -398,6 +384,7 @@ class QueueInfo {
   final int averageHandlingTimeMinutes;
   final int estimatedWaitMinutes;
   final String estimatedWaitTime;
+  final DateTime? appointmentDate; // Added for context-aware messaging
 
   QueueInfo({
     required this.queuePosition,
@@ -405,20 +392,43 @@ class QueueInfo {
     required this.averageHandlingTimeMinutes,
     required this.estimatedWaitMinutes,
     required this.estimatedWaitTime,
+    this.appointmentDate,
   });
 
   bool get isNextInLine => tokensAhead == 0;
   
+  bool get _isToday {
+    if (appointmentDate == null) return true;
+    final now = DateTime.now();
+    return appointmentDate!.year == now.year && 
+           appointmentDate!.month == now.month && 
+           appointmentDate!.day == now.day;
+  }
+
+  String get _dateSuffix {
+    if (_isToday || appointmentDate == null) return '';
+    return ' for ${_appointmentDateFormat.format(appointmentDate!)}';
+  }
+
+  static final _appointmentDateFormat = DateFormat('MMM d');
+
   String get positionText {
     if (queuePosition == 0) return 'Not in queue';
-    if (queuePosition == 1) return 'Next in line';
-    return 'Position #$queuePosition';
+    if (_isToday) {
+      if (queuePosition == 1) return 'Next in line';
+      return 'Position #$queuePosition';
+    }
+    return 'Position #$queuePosition$_dateSuffix';
   }
 
   String get tokensAheadText {
-    if (tokensAhead == 0) return 'You\'re next!';
-    if (tokensAhead == 1) return '1 person ahead';
-    return '$tokensAhead people ahead';
+    if (_isToday) {
+      if (tokensAhead == 0) return 'You\'re next!';
+      if (tokensAhead == 1) return '1 person ahead';
+      return '$tokensAhead people ahead';
+    }
+    if (tokensAhead == 0) return 'First in queue$_dateSuffix';
+    return '$tokensAhead people ahead$_dateSuffix';
   }
 }
 

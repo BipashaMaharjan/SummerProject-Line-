@@ -142,8 +142,9 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF0F4FF),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 80),
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 40),
           child: Form(
             key: _formKey,
             child: Column(
@@ -238,7 +239,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                         : const Text('Complete Profile', style: TextStyle(color: Colors.white)),
                   ),
                 ),
-                const Spacer(),
+                const SizedBox(height: 30),
 
                 Center(
                   child: Text(
@@ -251,6 +252,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> {
                 ),
               ],
             ),
+          ),
           ),
         ),
       ),
