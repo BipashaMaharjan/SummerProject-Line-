@@ -80,6 +80,8 @@ class _HomeScreenState extends State<HomeScreen> {
           label: 'VIEW',
           textColor: Colors.white,
           onPressed: () {
+            // Mark as read immediately when viewed
+            Provider.of<NotificationProvider>(context, listen: false).markAsRead(notification.id);
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (context) => const NotificationsScreen(),

@@ -362,4 +362,59 @@ class AuthProvider with ChangeNotifier {
       return const HomeScreen();
     }
   }
+
+  // --- Account Management ---
+
+  Future<void> updatePassword(String newPassword) async {
+    try {
+      _isLoading = true;
+      _error = null;
+      notifyListeners();
+
+      await SupabaseConfig.client.auth.updateUser(
+        UserAttributes(password: newPassword),
+      );
+      
+      _isLoading = false;
+      notifyListeners();
+    } on AuthException catch (e) {
+      _error = e.message;
+      _isLoading = false;
+      notifyListeners();
+      rethrow;
+    } catch (e) {
+      _error = 'An unexpected error occurred';
+      _isLoading = false;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> deleteAccount() async {
+    try {
+      _isLoading = true;
+      _error = null;
+      notifyListeners();
+
+      final userId = _user?.id;
+      if (userId == null) throw Exception('No user logged in');
+
+      // 1. Delete profile from database
+      await SupabaseConfig.client
+          .from('profiles')
+          .delete()
+          .eq('id', userId);
+
+      // 2. Sign out
+      await signOut();
+      
+      _isLoading = false;
+      notifyListeners();
+    } catch (e) {
+      _error = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      rethrow;
+    }
+  }
 }

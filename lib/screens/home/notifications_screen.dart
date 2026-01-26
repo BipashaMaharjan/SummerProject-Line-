@@ -12,6 +12,17 @@ class NotificationsScreen extends StatefulWidget {
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
   @override
+  void initState() {
+    super.initState();
+    // Automatically mark all as read when opening the screen
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<NotificationProvider>().markAllAsRead();
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Consumer<NotificationProvider>(
       builder: (context, notificationProvider, child) {
@@ -23,16 +34,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             title: const Text('Notifications'),
             backgroundColor: Colors.blue.shade600,
             foregroundColor: Colors.white,
-            actions: [
-              if (unreadCount > 0)
-                TextButton(
-                  onPressed: () => notificationProvider.markAllAsRead(),
-                  child: const Text(
-                    'Mark all read',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                ),
-            ],
           ),
           body: RefreshIndicator(
             onRefresh: () async {
