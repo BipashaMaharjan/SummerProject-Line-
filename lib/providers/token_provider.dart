@@ -696,6 +696,14 @@ class TokenProvider extends ChangeNotifier {
       final dateStart = DateTime(targetDate.year, targetDate.month, targetDate.day);
       final dateEnd = dateStart.add(const Duration(days: 1));
 
+      debugPrint('TokenProvider: Triggering auto-rejection for stale tokens...');
+      try {
+        await SupabaseConfig.client.rpc('auto_reject_no_show_tokens');
+      } catch (e) {
+        debugPrint('⚠️ Auto-rejection RPC failed: $e');
+        // Continue anyway as this might fail if the function doesn't exist yet
+      }
+
       debugPrint('TokenProvider: Loading tokens for date: ${dateStart.toIso8601String()}');
       
       final realRoomId = filterByRoomId != null ? _mapToRealRoomId(filterByRoomId) : null;

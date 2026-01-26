@@ -273,12 +273,24 @@ class _DashboardTabState extends State<DashboardTab> {
     await tokenProvider.loadUserTokens();
     
     if (mounted) {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      
       // Filter for active tokens (processing, waiting, and hold)
+      // AND ensure they are for today (to prevent old "Waiting" tokens from showing as active)
       final allActive = tokenProvider.userTokens
-          .where((token) => 
-              token.status == TokenStatus.processing || 
-              token.status == TokenStatus.waiting ||
-              token.status == TokenStatus.hold)
+          .where((token) {
+            final isActiveStatus = token.status == TokenStatus.processing || 
+                token.status == TokenStatus.waiting ||
+                token.status == TokenStatus.hold;
+            
+            if (!isActiveStatus) return false;
+            
+            // Check if token is for today
+            final tokenDate = token.scheduledDate ?? token.bookedAt ?? token.createdAt;
+            final tokenDay = DateTime(tokenDate.year, tokenDate.month, tokenDate.day);
+            return tokenDay.isAtSameMomentAs(today);
+          })
           .toList();
       
       // Sort by priority: processing > waiting > hold, then by date

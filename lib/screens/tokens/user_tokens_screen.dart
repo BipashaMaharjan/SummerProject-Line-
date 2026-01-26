@@ -77,6 +77,7 @@ class _UserTokensScreenState extends State<UserTokensScreen> with SingleTickerPr
 
   @override
   Widget build(BuildContext context) {
+    final tokenProvider = context.watch<TokenProvider>();
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Tokens'),
@@ -112,20 +113,34 @@ class _UserTokensScreenState extends State<UserTokensScreen> with SingleTickerPr
               child: TabBarView(
                 controller: _tabController,
                 children: [
-                  // Active Tab - Show in-progress, arrived, and waiting tokens
+                  // Active Tab - Show what's happening RIGHT NOW (Today's queue)
                   _buildTokenList([
-                    ...?_tokensByStatus[TokenStatus.processing],
-                    ...?_tokensByStatus[TokenStatus.arrived],
-                    ...?_tokensByStatus[TokenStatus.waiting],
+                    ...?_tokensByStatus[TokenStatus.processing]?.where((t) => _isToday(t.scheduledDate ?? t.bookedAt ?? t.createdAt)),
+                    ...?_tokensByStatus[TokenStatus.arrived]?.where((t) => _isToday(t.scheduledDate ?? t.bookedAt ?? t.createdAt)),
+                    ...?_tokensByStatus[TokenStatus.waiting]?.where((t) => _isToday(t.scheduledDate ?? t.bookedAt ?? t.createdAt)),
+                  ].map((e) => e as Token).toList()),
+                  
+                  // Upcoming Tab - Show future bookings and tokens on hold
+                  _buildTokenList([
+                    ...?_tokensByStatus[TokenStatus.hold],
+                    // Show all future 'waiting' tokens here
+                    ...tokenProvider.userTokens.where((t) => 
+                      t.status == TokenStatus.waiting && 
+                      _isFuture(t.scheduledDate ?? t.bookedAt ?? t.createdAt)
+                    ),
                   ]),
-                  // Upcoming Tab - Show hold tokens
-                  _buildTokenList(_tokensByStatus[TokenStatus.hold]),
-                  // History Tab - Show completed, rejected, cancelled, and no-show tokens
+                  
+                  // History Tab - Show everything that is definitely done or missed
                   _buildTokenList([
                     ...?_tokensByStatus[TokenStatus.completed],
                     ...?_tokensByStatus[TokenStatus.rejected],
                     ...?_tokensByStatus[TokenStatus.cancelled],
                     ...?_tokensByStatus[TokenStatus.noShow],
+                    // Also include 'waiting' tokens from the past (they are effectively missed)
+                    ...tokenProvider.userTokens.where((t) => 
+                      t.status == TokenStatus.waiting && 
+                      _isPast(t.scheduledDate ?? t.bookedAt ?? t.createdAt)
+                    ),
                   ]),
                 ],
               ),
@@ -270,5 +285,24 @@ class _UserTokensScreenState extends State<UserTokensScreen> with SingleTickerPr
         if (success) _loadUserTokens();
       }
     }
+  }
+  
+  bool _isToday(DateTime date) {
+    final now = DateTime.now();
+    return date.year == now.year && date.month == now.month && date.day == now.day;
+  }
+
+  bool _isFuture(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    // Becomes future if it's after today (strictly tomorrow or later)
+    return date.isAfter(today.add(const Duration(days: 1)).subtract(const Duration(seconds: 1)));
+  }
+
+  bool _isPast(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    // Is strictly before today
+    return date.isBefore(today);
   }
 }
